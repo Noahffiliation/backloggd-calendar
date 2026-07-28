@@ -208,9 +208,9 @@ google-api-core==2.33.0 \
     --hash=sha256:3a36bcc3e319783f4c97da41f6f45ea6ffcaa55848e341de16e09cb70243c2bb \
     --hash=sha256:a2e22a0c1d0f03eafff1858b38cf46f832d5902b0c052235bf0ab8402929fbdc
     # via google-api-python-client
-google-api-python-client==2.100.0 \
-    --hash=sha256:226ca35355993d6182506c51745ab5149405cdf6a92975b2725ab3e0d757dbe9 \
-    --hash=sha256:eaed50efc2f8a4027dcca8fd0037f4b1b03b8093efc84ce3cb6c75bfc79a7e31
+google-api-python-client==2.123.0 \
+    --hash=sha256:1c2bcaa846acf5bac4d6f244d8373d4de9de73d64eb6e77b56767ab4cf681419 \
+    --hash=sha256:a17226b02f71de581afe045437b441844110a9cd91580b73549d41108cf1b9f0
     # via -r requirements.in
 google-auth==2.20.0 \
     --hash=sha256:030af34138909ccde0fbce611afc178f1d65d32fbff281f25738b1fe1c6f3eaa \
@@ -221,9 +221,9 @@ google-auth==2.20.0 \
     #   google-api-python-client
     #   google-auth-httplib2
     #   google-auth-oauthlib
-google-auth-httplib2==0.1.0 \
-    --hash=sha256:31e49c36c6b5643b57e82617cb3e021e3e1d2df9da63af67252c02fa9c1f4a10 \
-    --hash=sha256:a07c39fd632becacd3f07718dfd6021bf396978f03ad3ce4321d060015cc30ac
+google-auth-httplib2==0.4.0 \
+    --hash=sha256:8e55cfafa3358cba85f6cad4a886138e88e158d71e7e5c9ee5936a5c1507fb91 \
+    --hash=sha256:d5b030a204b7a4b4d553ba9ca701b62481ee2b74419325580be70f7d85ffed35
     # via
     #   -r requirements.in
     #   google-api-python-client
@@ -429,7 +429,6 @@ six==1.17.0 \
     --hash=sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81
     # via
     #   google-auth
-    #   google-auth-httplib2
     #   python-dateutil
 soupsieve==2.9.1 \
     --hash=sha256:4f4477399246b7a0c720a88ca2454b11cd6bb9ae4c9d170140786e916776c14c \

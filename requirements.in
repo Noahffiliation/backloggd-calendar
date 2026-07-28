@@ -1,9 +1,9 @@
 playwright==1.49.0
 beautifulsoup4==4.12.2
 icalendar==7.2.2
-google-api-python-client==2.100.0
+google-api-python-client==2.123.0
 google-auth==2.20.0
-google-auth-httplib2==0.1.0
+google-auth-httplib2==0.4.0
 google-auth-oauthlib==1.0.0
 python-dotenv==1.2.2
 python-dateutil==2.9.0.post0
