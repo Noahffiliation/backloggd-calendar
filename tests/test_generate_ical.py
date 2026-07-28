@@ -35,6 +35,11 @@ def test_validate_safe_path_invalid():
         validate_safe_path("../../etc/passwd", base)
 
 
+def test_validate_safe_path_no_base_dir():
+    target = validate_safe_path("output.ics", base_dir=None)
+    assert target == Path("output.ics")
+
+
 @patch("generate_ical.sys.exit")
 def test_main_missing_username(mock_exit):
     with patch("generate_ical.parse_args") as mock_parse:
