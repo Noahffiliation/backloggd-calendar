@@ -1,0 +1,49 @@
+name: Sync Backloggd Calendar
+
+on:
+  schedule:
+    # Runs every 8 hours starting at 05:00 UTC (Midnight CDT)
+    - cron: '0 5,13,21 * * *'
+  workflow_dispatch: # Allows manual execution from GitHub Actions tab
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          playwright install chromium --with-deps
+
+      - name: Setup Google Service Account (if provided)
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        if: env.SERVICE_ACCOUNT_JSON != ''
+        run: |
+          echo "$SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: Generate iCal Calendar & Sync to Google
+        env:
+          BACKLOGGD_USERNAME: ${{ secrets.BACKLOGGD_USERNAME }}
+          DAYS_BACK: ${{ secrets.DAYS_BACK || '30' }}
+          SYNC_GOOGLE: ${{ secrets.SYNC_GOOGLE || 'false' }}
+          GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
+        run: |
+          python generate_ical.py
+
+      - name: Upload iCal Files as Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: backloggd-ical-files
+          path: '*.ics'

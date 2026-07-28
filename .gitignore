@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Google API Credentials & Tokens
+service_account.json
+credentials.json
+token.json
+
+# Environment variables
+.env
+
+# iCal calendar files & output
+*.ics
+
+# Cache
+.backloggd_cache.json
+
+.coverage
+coverage.xml
