@@ -66,7 +66,11 @@ def parse_args():
         action="store_true",
         help="Enable verbose debug logging"
     )
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.output:
+        # Validate output path stays strictly within current working directory to prevent path injection
+        validate_safe_path(args.output, Path.cwd())
+    return args
 
 
 def validate_safe_path(file_path_str: str, base_dir: Path = None) -> Path:

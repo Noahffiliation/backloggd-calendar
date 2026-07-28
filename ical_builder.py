@@ -5,7 +5,8 @@ iCal (.ics) generator for Backloggd wishlist games.
 from datetime import datetime, date, timedelta
 import hashlib
 import logging
-from typing import List, Dict, Any, Optional
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Union
 
 from icalendar import Calendar, Event, Alarm
 
@@ -104,8 +105,21 @@ def build_wishlist_calendar(
     return cal
 
 
-def export_calendar_to_file(cal: Calendar, file_path: str) -> None:
-    """Write the Calendar instance to a .ics file."""
-    with open(file_path, "wb") as f:
+def export_calendar_to_file(cal: Calendar, file_path: str | Path, base_dir: Optional[Path] = None) -> None:
+    """Write the Calendar instance to a .ics file, enforcing path validation."""
+    target_path = Path(file_path)
+    if base_dir is not None:
+        base_dir = base_dir.resolve()
+        if not target_path.is_absolute():
+            target_path = base_dir / target_path
+        resolved_path = target_path.resolve()
+        try:
+            resolved_path.relative_to(base_dir)
+        except ValueError:
+            raise ValueError(f"Path '{file_path}' is outside allowed directory '{base_dir}'")
+    else:
+        resolved_path = target_path.resolve()
+
+    with open(resolved_path, "wb") as f:
         f.write(cal.to_ical())
-    logger.info(f"Successfully saved calendar to '{file_path}'")
+    logger.info(f"Successfully saved calendar to '{resolved_path}'")
