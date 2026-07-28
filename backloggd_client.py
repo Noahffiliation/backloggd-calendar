@@ -94,18 +94,31 @@ def _fetch_page_content(page: Any, url: str) -> Optional[str]:
     """Navigates to URL and returns page content HTML, or None on error."""
     try:
         _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
-        page.wait_for_timeout(2000)
-        return page.content()
     except Exception as e:
         logger.warning(f"Timeout/error fetching page {url}: {e}")
+
+    try:
+        page.wait_for_timeout(2000)
+    except Exception:
+        pass
+
+    for attempt in range(3):
         try:
-            content = page.content()
-            if content and content.strip():
-                logger.info(f"Retrieved content for {url} despite navigation timeout/warning")
-                return content
-        except Exception:
-            pass
-        return None
+            return page.content()
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "navigating" in err_msg:
+                logger.info(f"Page {url} is navigating (attempt {attempt + 1}/3), waiting for load state...")
+                try:
+                    page.wait_for_load_state("domcontentloaded", timeout=10000)
+                    page.wait_for_timeout(1000)
+                except Exception as wait_err:
+                    logger.warning(f"Error waiting for load state on {url}: {wait_err}")
+            else:
+                logger.warning(f"Error retrieving content for page {url}: {e}")
+                break
+
+    return None
 
 
 def fetch_backloggd_wishlist(
