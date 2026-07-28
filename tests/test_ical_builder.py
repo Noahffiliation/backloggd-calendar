@@ -4,7 +4,9 @@ Unit tests for ical_builder.py
 
 from datetime import date, datetime
 import os
+from pathlib import Path
 import tempfile
+import pytest
 
 from icalendar import Calendar, Event
 
@@ -86,3 +88,26 @@ def test_export_calendar_to_file():
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
+
+def test_export_calendar_to_file_with_base_dir_valid():
+    cal = Calendar()
+    cal.add("prodid", "-//Test//EN")
+    cal.add("version", "2.0")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        base_path = Path(tmp_dir)
+        target_file = base_path / "valid_test.ics"
+        export_calendar_to_file(cal, "valid_test.ics", base_dir=base_path)
+        assert target_file.exists()
+
+
+def test_export_calendar_to_file_with_base_dir_invalid():
+    cal = Calendar()
+    cal.add("prodid", "-//Test//EN")
+    cal.add("version", "2.0")
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        base_path = Path(tmp_dir)
+        with pytest.raises(ValueError):
+            export_calendar_to_file(cal, "../../outside.ics", base_dir=base_path)
