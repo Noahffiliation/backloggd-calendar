@@ -1,6 +1,6 @@
 playwright==1.49.0
 beautifulsoup4==4.12.2
-icalendar==5.0.0
+icalendar==7.2.2
 google-api-python-client==2.100.0
 google-auth==2.20.0
 google-auth-httplib2==0.1.0
