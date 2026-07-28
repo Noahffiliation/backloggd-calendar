@@ -124,6 +124,32 @@ def test_fetch_page_content_timeout_fallback():
     assert result == "<html><body>Partial content</body></html>"
 
 
+def test_fetch_page_content_navigating_retry():
+    mock_page = MagicMock()
+    mock_page.content.side_effect = [
+        Exception("Unable to retrieve content because the page is navigating and changing the content."),
+        "<html><body>Navigated Content</body></html>",
+    ]
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result == "<html><body>Navigated Content</body></html>"
+    mock_page.wait_for_load_state.assert_called_once_with("domcontentloaded", timeout=10000)
+
+
+def test_fetch_page_content_navigating_wait_error():
+    mock_page = MagicMock()
+    mock_page.wait_for_timeout.side_effect = Exception("Wait error")
+    mock_page.wait_for_load_state.side_effect = Exception("Wait load state error")
+    mock_page.content.side_effect = [
+        Exception("Unable to retrieve content because the page is navigating and changing the content."),
+        Exception("Still navigating"),
+        Exception("Failed"),
+    ]
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result is None
+
+
 @patch("backloggd_client.sync_playwright")
 def test_fetch_backloggd_wishlist_anti_bot_blocked(mock_playwright):
     mock_browser = MagicMock()
