@@ -93,11 +93,18 @@ def _extract_game_entry(cover: Any, cutoff_date: date) -> Optional[Dict[str, Any
 def _fetch_page_content(page: Any, url: str) -> Optional[str]:
     """Navigates to URL and returns page content HTML, or None on error."""
     try:
-        _ = page.goto(url, wait_until="networkidle", timeout=30000)
+        _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
         page.wait_for_timeout(2000)
         return page.content()
     except Exception as e:
         logger.warning(f"Timeout/error fetching page {url}: {e}")
+        try:
+            content = page.content()
+            if content and content.strip():
+                logger.info(f"Retrieved content for {url} despite navigation timeout/warning")
+                return content
+        except Exception:
+            pass
         return None
 
 

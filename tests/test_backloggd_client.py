@@ -103,15 +103,25 @@ def test_fetch_page_content_success():
 
     result = _fetch_page_content(mock_page, "https://example.com")
     assert result == "<html><body>Test</body></html>"
-    mock_page.goto.assert_called_once_with("https://example.com", wait_until="networkidle", timeout=30000)
+    mock_page.goto.assert_called_once_with("https://example.com", wait_until="domcontentloaded", timeout=30000)
 
 
 def test_fetch_page_content_exception():
     mock_page = MagicMock()
     mock_page.goto.side_effect = Exception("Network Error")
+    mock_page.content.side_effect = Exception("No content")
 
     result = _fetch_page_content(mock_page, "https://example.com")
     assert result is None
+
+
+def test_fetch_page_content_timeout_fallback():
+    mock_page = MagicMock()
+    mock_page.goto.side_effect = Exception("Timeout 30000ms exceeded")
+    mock_page.content.return_value = "<html><body>Partial content</body></html>"
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result == "<html><body>Partial content</body></html>"
 
 
 @patch("backloggd_client.sync_playwright")
