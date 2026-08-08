@@ -195,3 +195,21 @@ def test_fetch_backloggd_wishlist_success(mock_playwright):
     assert len(games) == 1
     assert games[0]["title"] == "Game 1"
     assert games[0]["release_date"] == date(2026, 12, 31)
+
+
+@patch("backloggd_client.sync_playwright")
+@patch("backloggd_client._fetch_page_content")
+def test_fetch_backloggd_wishlist_empty_html(mock_fetch_content, mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    mock_fetch_content.return_value = None
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30)
+    assert games == []
+

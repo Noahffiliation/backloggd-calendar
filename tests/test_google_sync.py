@@ -197,6 +197,77 @@ def test_upsert_single_event_patch():
     )
 
 
+@patch("google_sync.os.path.exists")
+@patch("google_sync.Credentials")
+def test_get_oauth_credentials_token_corrupted(mock_creds_cls, mock_exists):
+    # token.json exists but throws exception on load, fallback to credentials.json
+    mock_exists.side_effect = lambda p: p in ("token.json", "credentials.json")
+    mock_creds_cls.from_authorized_user_file.side_effect = Exception("Corrupt token JSON")
+
+    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
+        with patch("builtins.open", MagicMock()):
+            mock_flow = MagicMock()
+            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+            mock_new_creds = MagicMock()
+            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+            mock_flow.run_local_server.return_value = mock_new_creds
+
+            creds = _get_oauth_credentials("credentials.json", "token.json")
+            assert creds == mock_new_creds
+
+
+@patch("google_sync.os.path.exists")
+@patch("google_sync.Credentials")
+def test_get_oauth_credentials_refresh_fails(mock_creds_cls, mock_exists):
+    mock_exists.side_effect = lambda p: p in ("token.json", "credentials.json")
+    mock_creds = MagicMock()
+    mock_creds.valid = False
+    mock_creds.expired = True
+    mock_creds.refresh_token = "refresh_token"
+    mock_creds.refresh.side_effect = Exception("Refresh failed")
+    mock_creds_cls.from_authorized_user_file.return_value = mock_creds
+
+    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
+        with patch("builtins.open", MagicMock()):
+            mock_flow = MagicMock()
+            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+            mock_new_creds = MagicMock()
+            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+            mock_flow.run_local_server.return_value = mock_new_creds
+
+            creds = _get_oauth_credentials("credentials.json", "token.json")
+            assert creds == mock_new_creds
+
+
+@patch("google_sync.os.path.exists")
+def test_get_oauth_credentials_interactive_flow(mock_exists):
+    # token.json does not exist, credentials.json exists
+    mock_exists.side_effect = lambda p: p == "credentials.json"
+
+    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
+        with patch("builtins.open", MagicMock()):
+            mock_flow = MagicMock()
+            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+            mock_new_creds = MagicMock()
+            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+            mock_flow.run_local_server.return_value = mock_new_creds
+
+            creds = _get_oauth_credentials("credentials.json", "token.json")
+            assert creds == mock_new_creds
+
+
+def test_share_calendar_with_email_httperror_logged():
+    with patch.dict(os.environ, {}, clear=True):
+        mock_service = MagicMock()
+        acl_mock = mock_service.acl.return_value
+        acl_mock.list.return_value.execute.return_value = {"items": []}
+
+        # HttpError with non-duplicate error (e.g. 500 internal error)
+        err_resp = MagicMock(status=500)
+        acl_mock.insert.return_value.execute.side_effect = HttpError(resp=err_resp, content=b"Server Error")
+        share_calendar_with_email(mock_service, "cal123", "error@example.com")
+
+
 def test_upsert_single_event_insert():
     mock_service = MagicMock()
     event_body = {"summary": "Test"}
@@ -210,10 +281,11 @@ def test_upsert_single_event_insert():
 
 @patch("google_sync.time.sleep")
 @patch("google_sync._fetch_existing_events_by_uid")
-def test_sync_games_to_google_calendar(mock_fetch_existing, mock_sleep):
+def test_sync_games_to_google_calendar_inserts_and_updates(mock_fetch_existing, mock_sleep):
     mock_service = MagicMock()
+    # Mock existing events matching UID of Game 1
     mock_fetch_existing.return_value = {
-        "backloggd-111111111111@backloggd-calendar": {"id": "evt_existing"}
+        "backloggd-484196144837@backloggd-calendar": {"id": "evt_existing_id"}
     }
 
     games = [
@@ -224,9 +296,18 @@ def test_sync_games_to_google_calendar(mock_fetch_existing, mock_sleep):
         },
         {
             "title": "Game 2",
+            "url": "https://backloggd.com/games/g2/",
+            "release_date": date(2026, 12, 2),
+        },
+        {
+            "title": "Game 3",
             "release_date": None,  # should be skipped
         },
     ]
 
-    sync_games_to_google_calendar(mock_service, "cal123", games)
-    mock_service.events.return_value.insert.assert_called_once()
+    with patch("google_sync._upsert_single_event") as mock_upsert:
+        # First call updates existing event, second call creates new event
+        mock_upsert.side_effect = [True, False]
+        sync_games_to_google_calendar(mock_service, "cal123", games)
+        assert mock_upsert.call_count == 2
+

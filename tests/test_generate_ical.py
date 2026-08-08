@@ -127,3 +127,19 @@ def test_main_google_sync_error(mock_get_service, mock_exit):
 
                     main()
                     mock_exit.assert_called_once_with(1)
+
+
+@patch("backloggd_client.fetch_backloggd_wishlist")
+@patch("ical_builder.export_calendar_to_file")
+@patch("ical_builder.build_wishlist_calendar")
+def test_main_dunder_entry_point(mock_build, mock_export, mock_fetch):
+    import runpy
+
+    mock_fetch.return_value = []
+    with patch("sys.argv", ["generate_ical.py", "--username", "testuser"]):
+        runpy.run_path("generate_ical.py", run_name="__main__")
+        mock_fetch.assert_called_once()
+        mock_build.assert_called_once()
+        mock_export.assert_called_once()
+
+

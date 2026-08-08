@@ -2,12 +2,34 @@ name: Sync Backloggd Calendar
 
 on:
   schedule:
-    # Runs every 8 hours starting at 05:00 UTC (Midnight CDT)
     - cron: '0 5,13,21 * * *'
-  workflow_dispatch: # Allows manual execution from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      username:
+        description: 'Backloggd Username (leave empty to use secret)'
+        required: false
+        type: string
+      days_back:
+        description: 'Days in the past to include'
+        required: false
+        default: '30'
+        type: string
+      sync_google:
+        description: 'Sync to Google Calendar'
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: sync-backloggd-calendar
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   sync:
+    name: Sync Calendar & Generate iCal
     runs-on: ubuntu-latest
 
     steps:
@@ -20,11 +42,24 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
-      - name: Install Dependencies
+      - name: Install Python Dependencies
         run: |
-          python -m pip install "pip==26.1.2"
           pip install --require-hashes --only-binary :all: -r requirements.txt
-          playwright install chromium --with-deps
+
+      - name: Cache Playwright Browsers
+        id: playwright-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+
+      - name: Install Playwright Browsers & OS Dependencies
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: playwright install chromium --with-deps
+
+      - name: Install Playwright OS Dependencies Only (Cache Hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: playwright install-deps chromium
 
       - name: Setup Google Service Account (if provided)
         env:
@@ -35,15 +70,33 @@ jobs:
 
       - name: Generate iCal Calendar & Sync to Google
         env:
-          BACKLOGGD_USERNAME: ${{ secrets.BACKLOGGD_USERNAME }}
-          DAYS_BACK: ${{ secrets.DAYS_BACK || '30' }}
-          SYNC_GOOGLE: ${{ secrets.SYNC_GOOGLE || 'false' }}
+          BACKLOGGD_USERNAME: ${{ inputs.username || secrets.BACKLOGGD_USERNAME }}
+          DAYS_BACK: ${{ inputs.days_back || secrets.DAYS_BACK || '30' }}
+          SYNC_GOOGLE: ${{ inputs.sync_google || secrets.SYNC_GOOGLE || 'false' }}
           GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
         run: |
           python generate_ical.py
+
+      - name: Generate Job Summary
+        if: always()
+        run: |
+          echo "## 📅 Backloggd Calendar Sync Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "| --- | --- |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Trigger** | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Target User** | \`${{ inputs.username || secrets.BACKLOGGD_USERNAME }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Days Back** | ${{ inputs.days_back || secrets.DAYS_BACK || '30' }} days |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Google Sync Enabled** | \`${{ inputs.sync_google || secrets.SYNC_GOOGLE || 'false' }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if ls ./*.ics 1> /dev/null 2>&1; then
+            echo "✅ iCal file(s) generated successfully:" >> $GITHUB_STEP_SUMMARY
+            ls -lh ./*.ics | awk '{print "- " $9 " (" $5 ")"}' >> $GITHUB_STEP_SUMMARY
+          fi
 
       - name: Upload iCal Files as Artifacts
         uses: actions/upload-artifact@v7
         with:
           name: backloggd-ical-files
           path: '*.ics'
+          retention-days: 14
