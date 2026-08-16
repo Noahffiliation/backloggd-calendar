@@ -1,0 +1,9 @@
+services:
+  backloggd-calendar:
+    build: .
+    container_name: backloggd-calendar
+    restart: "no"
+    env_file:
+      - .env
+    volumes:
+      - ./data:/data

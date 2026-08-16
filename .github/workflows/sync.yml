@@ -2,11 +2,12 @@ name: Sync Backloggd Calendar
 
 on:
   schedule:
+    # Runs every 8 hours (05:00 UTC = 12:00 AM CDT, 13:00 UTC = 08:00 AM CDT, 21:00 UTC = 04:00 PM CDT)
     - cron: '0 5,13,21 * * *'
   workflow_dispatch:
     inputs:
       username:
-        description: 'Backloggd Username (leave empty to use secret)'
+        description: 'Backloggd Username (leave empty to use secret/variable)'
         required: false
         type: string
       days_back:
@@ -30,16 +31,16 @@ permissions:
 jobs:
   sync:
     name: Sync Calendar & Generate iCal
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4.2.2
 
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@v5.4.0
         with:
-          python-version: '3.13'
+          python-version: '3.12.3'
           cache: 'pip'
 
       - name: Install Python Dependencies
@@ -48,7 +49,7 @@ jobs:
 
       - name: Cache Playwright Browsers
         id: playwright-cache
-        uses: actions/cache@v6
+        uses: actions/cache@v4.2.2
         with:
           path: ~/.cache/ms-playwright
           key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
@@ -95,7 +96,7 @@ jobs:
           fi
 
       - name: Upload iCal Files as Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4.6.1
         with:
           name: backloggd-ical-files
           path: '*.ics'
