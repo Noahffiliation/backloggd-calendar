@@ -2,12 +2,12 @@
 Unit tests for google_sync.py
 """
 
-from datetime import date, datetime
 import os
+from datetime import date, datetime
 from unittest.mock import MagicMock, patch
 
-from googleapiclient.errors import HttpError
 import pytest
+from googleapiclient.errors import HttpError
 
 from google_sync import (
     _build_google_event_payload,
@@ -204,16 +204,18 @@ def test_get_oauth_credentials_token_corrupted(mock_creds_cls, mock_exists):
     mock_exists.side_effect = lambda p: p in ("token.json", "credentials.json")
     mock_creds_cls.from_authorized_user_file.side_effect = Exception("Corrupt token JSON")
 
-    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
-        with patch("builtins.open", MagicMock()):
-            mock_flow = MagicMock()
-            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
-            mock_new_creds = MagicMock()
-            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
-            mock_flow.run_local_server.return_value = mock_new_creds
+    with (
+        patch("google_sync.InstalledAppFlow") as mock_flow_cls,
+        patch("builtins.open", MagicMock()),
+    ):
+        mock_flow = MagicMock()
+        mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+        mock_new_creds = MagicMock()
+        mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+        mock_flow.run_local_server.return_value = mock_new_creds
 
-            creds = _get_oauth_credentials("credentials.json", "token.json")
-            assert creds == mock_new_creds
+        creds = _get_oauth_credentials("credentials.json", "token.json")
+        assert creds == mock_new_creds
 
 
 @patch("google_sync.os.path.exists")
@@ -227,16 +229,18 @@ def test_get_oauth_credentials_refresh_fails(mock_creds_cls, mock_exists):
     mock_creds.refresh.side_effect = Exception("Refresh failed")
     mock_creds_cls.from_authorized_user_file.return_value = mock_creds
 
-    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
-        with patch("builtins.open", MagicMock()):
-            mock_flow = MagicMock()
-            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
-            mock_new_creds = MagicMock()
-            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
-            mock_flow.run_local_server.return_value = mock_new_creds
+    with (
+        patch("google_sync.InstalledAppFlow") as mock_flow_cls,
+        patch("builtins.open", MagicMock()),
+    ):
+        mock_flow = MagicMock()
+        mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+        mock_new_creds = MagicMock()
+        mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+        mock_flow.run_local_server.return_value = mock_new_creds
 
-            creds = _get_oauth_credentials("credentials.json", "token.json")
-            assert creds == mock_new_creds
+        creds = _get_oauth_credentials("credentials.json", "token.json")
+        assert creds == mock_new_creds
 
 
 @patch("google_sync.os.path.exists")
@@ -244,16 +248,18 @@ def test_get_oauth_credentials_interactive_flow(mock_exists):
     # token.json does not exist, credentials.json exists
     mock_exists.side_effect = lambda p: p == "credentials.json"
 
-    with patch("google_sync.InstalledAppFlow") as mock_flow_cls:
-        with patch("builtins.open", MagicMock()):
-            mock_flow = MagicMock()
-            mock_flow_cls.from_client_secrets_file.return_value = mock_flow
-            mock_new_creds = MagicMock()
-            mock_new_creds.to_json.return_value = '{"token": "xyz"}'
-            mock_flow.run_local_server.return_value = mock_new_creds
+    with (
+        patch("google_sync.InstalledAppFlow") as mock_flow_cls,
+        patch("builtins.open", MagicMock()),
+    ):
+        mock_flow = MagicMock()
+        mock_flow_cls.from_client_secrets_file.return_value = mock_flow
+        mock_new_creds = MagicMock()
+        mock_new_creds.to_json.return_value = '{"token": "xyz"}'
+        mock_flow.run_local_server.return_value = mock_new_creds
 
-            creds = _get_oauth_credentials("credentials.json", "token.json")
-            assert creds == mock_new_creds
+        creds = _get_oauth_credentials("credentials.json", "token.json")
+        assert creds == mock_new_creds
 
 
 def test_share_calendar_with_email_httperror_logged():
