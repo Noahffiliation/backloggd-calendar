@@ -12,15 +12,14 @@ from generate_ical import main, parse_args, validate_safe_path
 
 
 def test_parse_args_defaults():
-    with patch.dict(os.environ, {}, clear=True):
-        with patch("sys.argv", ["generate_ical.py"]):
-            args = parse_args()
-            assert args.username is None
-            assert args.output == "backloggd_wishlist.ics"
-            assert args.days_back == 30
-            assert args.sync_google is False
-            assert args.no_headless is False
-            assert args.verbose is False
+    with patch.dict(os.environ, {}, clear=True), patch("sys.argv", ["generate_ical.py"]):
+        args = parse_args()
+        assert args.username is None
+        assert args.output == "backloggd_wishlist.ics"
+        assert args.days_back == 30
+        assert args.sync_google is False
+        assert args.no_headless is False
+        assert args.verbose is False
 
 
 def test_validate_safe_path_valid():
@@ -109,24 +108,26 @@ def test_main_success_with_google_sync(
 @patch("generate_ical.sys.exit")
 @patch("generate_ical.get_google_calendar_service")
 def test_main_google_sync_error(mock_get_service, mock_exit):
-    with patch("generate_ical.parse_args") as mock_parse:
-        with patch("generate_ical.fetch_backloggd_wishlist") as mock_fetch:
-            with patch("generate_ical.build_wishlist_calendar"):
-                with patch("generate_ical.export_calendar_to_file"):
-                    args = MagicMock()
-                    args.username = "testuser"
-                    args.verbose = False
-                    args.output = "test.ics"
-                    args.days_back = 30
-                    args.no_headless = False
-                    args.sync_google = True
-                    mock_parse.return_value = args
+    with (
+        patch("generate_ical.parse_args") as mock_parse,
+        patch("generate_ical.fetch_backloggd_wishlist") as mock_fetch,
+        patch("generate_ical.build_wishlist_calendar"),
+        patch("generate_ical.export_calendar_to_file"),
+    ):
+        args = MagicMock()
+        args.username = "testuser"
+        args.verbose = False
+        args.output = "test.ics"
+        args.days_back = 30
+        args.no_headless = False
+        args.sync_google = True
+        mock_parse.return_value = args
 
-                    mock_fetch.return_value = []
-                    mock_get_service.side_effect = Exception("GCal Auth Failed")
+        mock_fetch.return_value = []
+        mock_get_service.side_effect = Exception("GCal Auth Failed")
 
-                    main()
-                    mock_exit.assert_called_once_with(1)
+        main()
+        mock_exit.assert_called_once_with(1)
 
 
 @patch("backloggd_client.fetch_backloggd_wishlist")

@@ -3,10 +3,11 @@ Playwright-based client for scraping Backloggd wishlist games and release dates.
 Handles Anubis proof-of-work anti-bot protection and pagination.
 """
 
-from datetime import datetime, date, timedelta
+import contextlib
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from datetime import date, datetime, timedelta
+from typing import Any
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
@@ -19,7 +20,7 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTM
 BASE_URL = "https://backloggd.com"
 
 
-def parse_release_date(date_str: str) -> Optional[date]:
+def parse_release_date(date_str: str) -> date | None:
     """
     Parses various release date formats from Backloggd into a datetime.date object.
     Supports: 'Mar 27, 2025', '2026', 'Q3 2026', 'Dec 2026', '2026-03-27'.
@@ -57,7 +58,7 @@ def parse_release_date(date_str: str) -> Optional[date]:
         return None
 
 
-def _extract_game_entry(cover: Any, cutoff_date: date) -> Optional[Dict[str, Any]]:
+def _extract_game_entry(cover: Any, cutoff_date: date) -> dict[str, Any] | None:
     """Extract game metadata from a single game cover HTML element."""
     img_tag = cover.find("img")
     title = img_tag["alt"] if img_tag and "alt" in img_tag.attrs else None
@@ -90,17 +91,15 @@ def _extract_game_entry(cover: Any, cutoff_date: date) -> Optional[Dict[str, Any
     }
 
 
-def _fetch_page_content(page: Any, url: str) -> Optional[str]:
+def _fetch_page_content(page: Any, url: str) -> str | None:
     """Navigates to URL and returns page content HTML, or None on error."""
     try:
         _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         logger.warning(f"Timeout/error fetching page {url}: {e}")
 
-    try:
+    with contextlib.suppress(Exception):
         page.wait_for_timeout(2000)
-    except Exception:
-        pass
 
     for attempt in range(3):
         try:
@@ -126,7 +125,7 @@ def fetch_backloggd_wishlist(
     days_back: int = 30,
     headless: bool = True,
     max_pages: int = 50
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Fetches games from a user's Backloggd wishlist sorted by release date.
     Filters games to include those released from `days_back` days ago up to all future dates.

@@ -4,7 +4,6 @@ and optionally sync directly to Google Calendar via Google Calendar API.
 """
 
 import argparse
-from datetime import datetime, timezone
 import logging
 import os
 import sys
@@ -13,12 +12,12 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from backloggd_client import fetch_backloggd_wishlist
-from ical_builder import build_wishlist_calendar, export_calendar_to_file
 from google_sync import (
     get_google_calendar_service,
     get_or_create_calendar,
     sync_games_to_google_calendar,
 )
+from ical_builder import build_wishlist_calendar, export_calendar_to_file
 
 # Load .env if present
 load_dotenv()
@@ -73,7 +72,7 @@ def parse_args():
     return args
 
 
-def validate_safe_path(file_path_str: str, base_dir: Path = None) -> Path:
+def validate_safe_path(file_path_str: str, base_dir: Path | None = None) -> Path:
     """Ensure output path stays within workspace to prevent path traversal."""
     target_path = Path(file_path_str)
     if base_dir is not None:

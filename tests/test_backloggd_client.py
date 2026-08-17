@@ -2,11 +2,10 @@
 Unit tests for backloggd_client.py
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from bs4 import BeautifulSoup
-import pytest
 
 from backloggd_client import (
     BASE_URL,

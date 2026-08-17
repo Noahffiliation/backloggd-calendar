@@ -2,18 +2,18 @@
 iCal (.ics) generator for Backloggd wishlist games.
 """
 
-from datetime import datetime, date, timedelta
 import hashlib
 import logging
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Union
+from typing import Any
 
-from icalendar import Calendar, Event, Alarm
+from icalendar import Alarm, Calendar, Event
 
 logger = logging.getLogger(__name__)
 
 
-def generate_game_uid(game: Dict[str, Any]) -> str:
+def generate_game_uid(game: dict[str, Any]) -> str:
     """Generate a deterministic UID for a game event."""
     url_or_title = game.get("url") or game.get("title", "unknown")
     hash_digest = hashlib.md5(url_or_title.encode("utf-8")).hexdigest()[:12]
@@ -21,7 +21,7 @@ def generate_game_uid(game: Dict[str, Any]) -> str:
 
 
 def build_wishlist_calendar(
-    games: List[Dict[str, Any]],
+    games: list[dict[str, Any]],
     calendar_name: str = "Backloggd Wishlist Releases"
 ) -> Calendar:
     """
@@ -105,7 +105,7 @@ def build_wishlist_calendar(
     return cal
 
 
-def export_calendar_to_file(cal: Calendar, file_path: str | Path, base_dir: Optional[Path] = None) -> None:
+def export_calendar_to_file(cal: Calendar, file_path: str | Path, base_dir: Path | None = None) -> None:
     """Write the Calendar instance to a .ics file, enforcing path validation."""
     target_path = Path(file_path)
     if base_dir is not None:

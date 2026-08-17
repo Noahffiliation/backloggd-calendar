@@ -6,8 +6,8 @@ import logging
 import os
 import os.path
 import time
-from typing import Any, Dict, List, Optional
-from datetime import datetime, date, timedelta
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from google.auth.transport.requests import Request
 from google.oauth2 import service_account
@@ -82,7 +82,7 @@ def get_google_calendar_service(
     return build('calendar', 'v3', credentials=creds)
 
 
-def share_calendar_with_email(service, calendar_id: str, share_email: Optional[str] = None):
+def share_calendar_with_email(service, calendar_id: str, share_email: str | None = None):
     """Share a Google Calendar with a user email address via ACL without sending notification emails."""
     email = share_email or os.getenv("GOOGLE_SHARE_EMAIL")
     if not email:
@@ -129,7 +129,7 @@ def get_or_create_calendar(service, calendar_summary: str = CALENDAR_NAME) -> st
     return cal_id
 
 
-def _fetch_existing_events_by_uid(service: Any, calendar_id: str) -> Dict[str, Dict[str, Any]]:
+def _fetch_existing_events_by_uid(service: Any, calendar_id: str) -> dict[str, dict[str, Any]]:
     """Fetch existing events indexed by iCalUID from Google Calendar."""
     existing_events_by_uid = {}
     page_token = None
@@ -152,7 +152,7 @@ def _fetch_existing_events_by_uid(service: Any, calendar_id: str) -> Dict[str, D
     return existing_events_by_uid
 
 
-def _get_event_date(rel_date: Any) -> Optional[date]:
+def _get_event_date(rel_date: Any) -> date | None:
     """Extract a date object from release_date attribute."""
     if isinstance(rel_date, datetime):
         return rel_date.date()
@@ -161,7 +161,7 @@ def _get_event_date(rel_date: Any) -> Optional[date]:
     return None
 
 
-def _build_google_event_payload(game: Dict[str, Any], event_date: date, uid: str) -> Dict[str, Any]:
+def _build_google_event_payload(game: dict[str, Any], event_date: date, uid: str) -> dict[str, Any]:
     """Construct Google Calendar event resource dictionary."""
     title = game.get('title', 'Untitled Game')
     url = game.get('url', '')
@@ -178,7 +178,7 @@ def _build_google_event_payload(game: Dict[str, Any], event_date: date, uid: str
     if url:
         desc_lines.append(f"Backloggd: {url}")
 
-    event_body: Dict[str, Any] = {
+    event_body: dict[str, Any] = {
         'summary': f"🎮 {title}",
         'description': "\n".join(desc_lines),
         'start': {'date': event_date.isoformat()},
@@ -202,8 +202,8 @@ def _build_google_event_payload(game: Dict[str, Any], event_date: date, uid: str
 def _upsert_single_event(
     service: Any,
     calendar_id: str,
-    event_body: Dict[str, Any],
-    existing_event: Optional[Dict[str, Any]]
+    event_body: dict[str, Any],
+    existing_event: dict[str, Any] | None
 ) -> bool:
     """Inserts or patches a Google Calendar event. Returns True if updated, False if created."""
     if existing_event:
@@ -222,7 +222,7 @@ def _upsert_single_event(
     return False
 
 
-def sync_games_to_google_calendar(service: Any, calendar_id: str, games: List[Dict[str, Any]]) -> None:
+def sync_games_to_google_calendar(service: Any, calendar_id: str, games: list[dict[str, Any]]) -> None:
     """
     Sync games to the Google Calendar, creating or updating events.
     """

@@ -2,12 +2,12 @@
 Unit tests for ical_builder.py
 """
 
-from datetime import date, datetime
 import os
-from pathlib import Path
 import tempfile
-import pytest
+from datetime import date, datetime
+from pathlib import Path
 
+import pytest
 from icalendar import Calendar, Event
 
 from ical_builder import build_wishlist_calendar, export_calendar_to_file, generate_game_uid
