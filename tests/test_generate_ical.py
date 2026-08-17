@@ -76,12 +76,7 @@ def test_main_fetch_error(mock_fetch, mock_exit):
 @patch("generate_ical.build_wishlist_calendar")
 @patch("generate_ical.fetch_backloggd_wishlist")
 def test_main_success_with_google_sync(
-    mock_fetch,
-    mock_build_cal,
-    mock_export,
-    mock_sync_gcal,
-    mock_get_or_create,
-    mock_get_service
+    mock_fetch, mock_build_cal, mock_export, mock_sync_gcal, mock_get_or_create, mock_get_service
 ):
     with patch("generate_ical.parse_args") as mock_parse:
         args = MagicMock()
@@ -142,5 +137,3 @@ def test_main_dunder_entry_point(mock_build, mock_export, mock_fetch):
         mock_fetch.assert_called_once()
         mock_build.assert_called_once()
         mock_export.assert_called_once()
-
-

@@ -107,7 +107,9 @@ def _fetch_page_content(page: Any, url: str) -> str | None:
         except Exception as e:
             err_msg = str(e).lower()
             if "navigating" in err_msg:
-                logger.info(f"Page {url} is navigating (attempt {attempt + 1}/3), waiting for load state...")
+                logger.info(
+                    f"Page {url} is navigating (attempt {attempt + 1}/3), waiting for load state..."
+                )
                 try:
                     page.wait_for_load_state("domcontentloaded", timeout=10000)
                     page.wait_for_timeout(1000)
@@ -121,17 +123,16 @@ def _fetch_page_content(page: Any, url: str) -> str | None:
 
 
 def fetch_backloggd_wishlist(
-    username: str,
-    days_back: int = 30,
-    headless: bool = True,
-    max_pages: int = 50
+    username: str, days_back: int = 30, headless: bool = True, max_pages: int = 50
 ) -> list[dict[str, Any]]:
     """
     Fetches games from a user's Backloggd wishlist sorted by release date.
     Filters games to include those released from `days_back` days ago up to all future dates.
     """
     cutoff_date = date.today() - timedelta(days=days_back)
-    logger.info(f"Filtering wishlist games with release dates >= {cutoff_date} ({days_back} days ago)")
+    logger.info(
+        f"Filtering wishlist games with release dates >= {cutoff_date} ({days_back} days ago)"
+    )
 
     wishlist_games = []
 
@@ -141,7 +142,7 @@ def fetch_backloggd_wishlist(
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-            ]
+            ],
         )
         context = browser.new_context(
             user_agent=USER_AGENT,
@@ -150,7 +151,9 @@ def fetch_backloggd_wishlist(
         )
 
         page = context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
 
         for page_num in range(1, max_pages + 1):
             url = f"{BASE_URL}/u/{username}/games/release/type:wishlist/?page={page_num}"
@@ -177,7 +180,9 @@ def fetch_backloggd_wishlist(
                 game = _extract_game_entry(c, cutoff_date)
                 if game:
                     wishlist_games.append(game)
-                    logger.info(f"Added game: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})")
+                    logger.info(
+                        f"Added game: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})"
+                    )
 
         browser.close()
 

@@ -21,8 +21,7 @@ def generate_game_uid(game: dict[str, Any]) -> str:
 
 
 def build_wishlist_calendar(
-    games: list[dict[str, Any]],
-    calendar_name: str = "Backloggd Wishlist Releases"
+    games: list[dict[str, Any]], calendar_name: str = "Backloggd Wishlist Releases"
 ) -> Calendar:
     """
     Build an iCalendar containing events for wishlist games with known release dates.
@@ -105,7 +104,9 @@ def build_wishlist_calendar(
     return cal
 
 
-def export_calendar_to_file(cal: Calendar, file_path: str | Path, base_dir: Path | None = None) -> None:
+def export_calendar_to_file(
+    cal: Calendar, file_path: str | Path, base_dir: Path | None = None
+) -> None:
     """Write the Calendar instance to a .ics file, enforcing path validation."""
     target_path = Path(file_path)
     if base_dir is not None:
