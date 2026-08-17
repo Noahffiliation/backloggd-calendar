@@ -132,7 +132,11 @@ def test_main_dunder_entry_point(mock_build, mock_export, mock_fetch):
     import runpy
 
     mock_fetch.return_value = []
-    with patch("sys.argv", ["generate_ical.py", "--username", "testuser"]):
+    with (
+        patch.dict(os.environ, {"SYNC_GOOGLE": "false"}),
+        patch("dotenv.load_dotenv"),
+        patch("sys.argv", ["generate_ical.py", "--username", "testuser"]),
+    ):
         runpy.run_path("generate_ical.py", run_name="__main__")
         mock_fetch.assert_called_once()
         mock_build.assert_called_once()
