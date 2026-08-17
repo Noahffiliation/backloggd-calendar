@@ -20,10 +20,10 @@ from ical_builder import generate_game_uid
 
 logger = logging.getLogger(__name__)
 
-SCOPES = ['https://www.googleapis.com/auth/calendar']
-SERVICE_ACCOUNT_FILE = 'service_account.json'
-CREDENTIALS_FILE = 'credentials.json'
-TOKEN_FILE = 'token.json'
+SCOPES = ["https://www.googleapis.com/auth/calendar"]
+SERVICE_ACCOUNT_FILE = "service_account.json"
+CREDENTIALS_FILE = "credentials.json"
+TOKEN_FILE = "token.json"
 CALENDAR_NAME = "Backloggd Wishlist Releases"
 
 
@@ -55,7 +55,7 @@ def _get_oauth_credentials(credentials_path: str, token_path: str):
     flow = InstalledAppFlow.from_client_secrets_file(credentials_path, SCOPES)
     creds = flow.run_local_server(port=0)
 
-    with open(token_path, 'w') as token_file:
+    with open(token_path, "w") as token_file:
         token_file.write(creds.to_json())
 
     return creds
@@ -64,7 +64,7 @@ def _get_oauth_credentials(credentials_path: str, token_path: str):
 def get_google_calendar_service(
     service_account_path: str = SERVICE_ACCOUNT_FILE,
     credentials_path: str = CREDENTIALS_FILE,
-    token_path: str = TOKEN_FILE
+    token_path: str = TOKEN_FILE,
 ):
     """
     Authenticate and return a Google Calendar API service instance.
@@ -73,13 +73,12 @@ def get_google_calendar_service(
     if os.path.exists(service_account_path):
         logger.info(f"Using Service Account authentication from '{service_account_path}'")
         creds = service_account.Credentials.from_service_account_file(
-            service_account_path,
-            scopes=SCOPES
+            service_account_path, scopes=SCOPES
         )
-        return build('calendar', 'v3', credentials=creds)
+        return build("calendar", "v3", credentials=creds)
 
     creds = _get_oauth_credentials(credentials_path, token_path)
-    return build('calendar', 'v3', credentials=creds)
+    return build("calendar", "v3", credentials=creds)
 
 
 def share_calendar_with_email(service, calendar_id: str, share_email: str | None = None):
@@ -88,16 +87,17 @@ def share_calendar_with_email(service, calendar_id: str, share_email: str | None
     if not email:
         return
     try:
-        existing_acls = service.acl().list(calendarId=calendar_id).execute(num_retries=3).get('items', [])
+        existing_acls = (
+            service.acl().list(calendarId=calendar_id).execute(num_retries=3).get("items", [])
+        )
         for acl in existing_acls:
-            if acl.get('scope', {}).get('value', '').lower() == email.lower():
+            if acl.get("scope", {}).get("value", "").lower() == email.lower():
                 return
 
-        rule = {
-            'scope': {'type': 'user', 'value': email},
-            'role': 'writer'
-        }
-        service.acl().insert(calendarId=calendar_id, body=rule, sendNotifications=False).execute(num_retries=3)
+        rule = {"scope": {"type": "user", "value": email}, "role": "writer"}
+        service.acl().insert(calendarId=calendar_id, body=rule, sendNotifications=False).execute(
+            num_retries=3
+        )
         logger.info(f"Shared Google Calendar ID '{calendar_id}' with '{email}'")
     except HttpError as error:
         if "alreadyExists" not in str(error) and "duplicate" not in str(error).lower():
@@ -111,18 +111,18 @@ def get_or_create_calendar(service, calendar_summary: str = CALENDAR_NAME) -> st
         return custom_cal_id
 
     calendar_list = service.calendarList().list().execute(num_retries=3)
-    for cal in calendar_list.get('items', []):
-        if cal.get('summary') == calendar_summary:
+    for cal in calendar_list.get("items", []):
+        if cal.get("summary") == calendar_summary:
             logger.info(f"Found existing Google Calendar '{calendar_summary}' (ID: {cal['id']})")
-            return cal['id']
+            return cal["id"]
 
     new_cal = {
-        'summary': calendar_summary,
-        'description': 'Automated calendar sync for Backloggd wishlist game releases.',
-        'timeZone': 'UTC'
+        "summary": calendar_summary,
+        "description": "Automated calendar sync for Backloggd wishlist game releases.",
+        "timeZone": "UTC",
     }
     created_cal = service.calendars().insert(body=new_cal).execute(num_retries=3)
-    cal_id = created_cal['id']
+    cal_id = created_cal["id"]
     logger.info(f"Created new Google Calendar '{calendar_summary}' (ID: {cal_id})")
 
     share_calendar_with_email(service, cal_id)
@@ -134,19 +134,18 @@ def _fetch_existing_events_by_uid(service: Any, calendar_id: str) -> dict[str, d
     existing_events_by_uid = {}
     page_token = None
     while True:
-        events_res = service.events().list(
-            calendarId=calendar_id,
-            pageToken=page_token,
-            singleEvents=True,
-            maxResults=250
-        ).execute(num_retries=3)
+        events_res = (
+            service.events()
+            .list(calendarId=calendar_id, pageToken=page_token, singleEvents=True, maxResults=250)
+            .execute(num_retries=3)
+        )
 
-        for item in events_res.get('items', []):
-            ical_uid = item.get('iCalUID')
+        for item in events_res.get("items", []):
+            ical_uid = item.get("iCalUID")
             if ical_uid:
                 existing_events_by_uid[ical_uid] = item
 
-        page_token = events_res.get('nextPageToken')
+        page_token = events_res.get("nextPageToken")
         if not page_token:
             break
     return existing_events_by_uid
@@ -163,11 +162,11 @@ def _get_event_date(rel_date: Any) -> date | None:
 
 def _build_google_event_payload(game: dict[str, Any], event_date: date, uid: str) -> dict[str, Any]:
     """Construct Google Calendar event resource dictionary."""
-    title = game.get('title', 'Untitled Game')
-    url = game.get('url', '')
-    platforms = game.get('platforms', [])
+    title = game.get("title", "Untitled Game")
+    url = game.get("url", "")
+    platforms = game.get("platforms", [])
     platform_str = ", ".join(platforms) if platforms else "N/A"
-    raw_date_str = game.get('release_date_raw', str(event_date))
+    raw_date_str = game.get("release_date_raw", str(event_date))
 
     desc_lines = [
         f"Game: {title}",
@@ -179,22 +178,22 @@ def _build_google_event_payload(game: dict[str, Any], event_date: date, uid: str
         desc_lines.append(f"Backloggd: {url}")
 
     event_body: dict[str, Any] = {
-        'summary': f"🎮 {title}",
-        'description': "\n".join(desc_lines),
-        'start': {'date': event_date.isoformat()},
-        'end': {'date': (event_date + timedelta(days=1)).isoformat()},
-        'iCalUID': uid,
-        'reminders': {
-            'useDefault': False,
-            'overrides': [
-                {'method': 'popup', 'minutes': -540},  # Same day at 9:00 AM
-                {'method': 'popup', 'minutes': 900},   # 1 day before at 9:00 AM
-                {'method': 'popup', 'minutes': 9540},  # 1 week before at 9:00 AM
-            ]
-        }
+        "summary": f"🎮 {title}",
+        "description": "\n".join(desc_lines),
+        "start": {"date": event_date.isoformat()},
+        "end": {"date": (event_date + timedelta(days=1)).isoformat()},
+        "iCalUID": uid,
+        "reminders": {
+            "useDefault": False,
+            "overrides": [
+                {"method": "popup", "minutes": -540},  # Same day at 9:00 AM
+                {"method": "popup", "minutes": 900},  # 1 day before at 9:00 AM
+                {"method": "popup", "minutes": 9540},  # 1 week before at 9:00 AM
+            ],
+        },
     }
     if url:
-        event_body['source'] = {'title': 'Backloggd', 'url': url}
+        event_body["source"] = {"title": "Backloggd", "url": url}
 
     return event_body
 
@@ -203,26 +202,23 @@ def _upsert_single_event(
     service: Any,
     calendar_id: str,
     event_body: dict[str, Any],
-    existing_event: dict[str, Any] | None
+    existing_event: dict[str, Any] | None,
 ) -> bool:
     """Inserts or patches a Google Calendar event. Returns True if updated, False if created."""
     if existing_event:
-        event_id = existing_event['id']
-        service.events().patch(
-            calendarId=calendar_id,
-            eventId=event_id,
-            body=event_body
-        ).execute(num_retries=3)
+        event_id = existing_event["id"]
+        service.events().patch(calendarId=calendar_id, eventId=event_id, body=event_body).execute(
+            num_retries=3
+        )
         return True
 
-    service.events().insert(
-        calendarId=calendar_id,
-        body=event_body
-    ).execute(num_retries=3)
+    service.events().insert(calendarId=calendar_id, body=event_body).execute(num_retries=3)
     return False
 
 
-def sync_games_to_google_calendar(service: Any, calendar_id: str, games: list[dict[str, Any]]) -> None:
+def sync_games_to_google_calendar(
+    service: Any, calendar_id: str, games: list[dict[str, Any]]
+) -> None:
     """
     Sync games to the Google Calendar, creating or updating events.
     """
@@ -234,7 +230,7 @@ def sync_games_to_google_calendar(service: Any, calendar_id: str, games: list[di
     count_updated = 0
 
     for game in games:
-        event_date = _get_event_date(game.get('release_date'))
+        event_date = _get_event_date(game.get("release_date"))
         if not event_date:
             continue
 

@@ -102,7 +102,9 @@ def test_fetch_page_content_success():
 
     result = _fetch_page_content(mock_page, "https://example.com")
     assert result == "<html><body>Test</body></html>"
-    mock_page.goto.assert_called_once_with("https://example.com", wait_until="domcontentloaded", timeout=30000)
+    mock_page.goto.assert_called_once_with(
+        "https://example.com", wait_until="domcontentloaded", timeout=30000
+    )
 
 
 def test_fetch_page_content_exception():
@@ -126,7 +128,9 @@ def test_fetch_page_content_timeout_fallback():
 def test_fetch_page_content_navigating_retry():
     mock_page = MagicMock()
     mock_page.content.side_effect = [
-        Exception("Unable to retrieve content because the page is navigating and changing the content."),
+        Exception(
+            "Unable to retrieve content because the page is navigating and changing the content."
+        ),
         "<html><body>Navigated Content</body></html>",
     ]
 
@@ -140,7 +144,9 @@ def test_fetch_page_content_navigating_wait_error():
     mock_page.wait_for_timeout.side_effect = Exception("Wait error")
     mock_page.wait_for_load_state.side_effect = Exception("Wait load state error")
     mock_page.content.side_effect = [
-        Exception("Unable to retrieve content because the page is navigating and changing the content."),
+        Exception(
+            "Unable to retrieve content because the page is navigating and changing the content."
+        ),
         Exception("Still navigating"),
         Exception("Failed"),
     ]
@@ -159,7 +165,9 @@ def test_fetch_backloggd_wishlist_anti_bot_blocked(mock_playwright):
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
-    mock_page.content.return_value = "<html><head><title>Oh noes!</title></head><body>Access Denied</body></html>"
+    mock_page.content.return_value = (
+        "<html><head><title>Oh noes!</title></head><body>Access Denied</body></html>"
+    )
 
     games = fetch_backloggd_wishlist("testuser", days_back=30)
     assert games == []
@@ -211,4 +219,3 @@ def test_fetch_backloggd_wishlist_empty_html(mock_fetch_content, mock_playwright
 
     games = fetch_backloggd_wishlist("testuser", days_back=30)
     assert games == []
-

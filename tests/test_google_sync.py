@@ -91,7 +91,9 @@ def test_get_google_calendar_service_account(mock_sa_creds, mock_build, mock_exi
     mock_sa_creds.from_service_account_file.return_value = MagicMock()
 
     _ = get_google_calendar_service()
-    mock_build.assert_called_once_with("calendar", "v3", credentials=mock_sa_creds.from_service_account_file.return_value)
+    mock_build.assert_called_once_with(
+        "calendar", "v3", credentials=mock_sa_creds.from_service_account_file.return_value
+    )
 
 
 @patch("google_sync.os.path.exists")
@@ -135,7 +137,9 @@ def test_share_calendar_with_email_httperror():
 
         # HttpError duplicate warning caught silently
         err_resp = MagicMock(status=409)
-        acl_mock.insert.return_value.execute.side_effect = HttpError(resp=err_resp, content=b"alreadyExists")
+        acl_mock.insert.return_value.execute.side_effect = HttpError(
+            resp=err_resp, content=b"alreadyExists"
+        )
         share_calendar_with_email(mock_service, "cal123", "error@example.com")
 
 
@@ -159,7 +163,9 @@ def test_get_or_create_calendar_existing():
 def test_get_or_create_calendar_create_new(mock_share):
     mock_service = MagicMock()
     mock_service.calendarList.return_value.list.return_value.execute.return_value = {"items": []}
-    mock_service.calendars.return_value.insert.return_value.execute.return_value = {"id": "cal_new_id"}
+    mock_service.calendars.return_value.insert.return_value.execute.return_value = {
+        "id": "cal_new_id"
+    }
 
     cal_id = get_or_create_calendar(mock_service)
     assert cal_id == "cal_new_id"
@@ -270,7 +276,9 @@ def test_share_calendar_with_email_httperror_logged():
 
         # HttpError with non-duplicate error (e.g. 500 internal error)
         err_resp = MagicMock(status=500)
-        acl_mock.insert.return_value.execute.side_effect = HttpError(resp=err_resp, content=b"Server Error")
+        acl_mock.insert.return_value.execute.side_effect = HttpError(
+            resp=err_resp, content=b"Server Error"
+        )
         share_calendar_with_email(mock_service, "cal123", "error@example.com")
 
 
@@ -316,4 +324,3 @@ def test_sync_games_to_google_calendar_inserts_and_updates(mock_fetch_existing, 
         mock_upsert.side_effect = [True, False]
         sync_games_to_google_calendar(mock_service, "cal123", games)
         assert mock_upsert.call_count == 2
-

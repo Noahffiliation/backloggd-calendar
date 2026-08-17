@@ -22,10 +22,7 @@ from ical_builder import build_wishlist_calendar, export_calendar_to_file
 # Load .env if present
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
 
@@ -34,37 +31,37 @@ def parse_args():
         description="Fetch Backloggd wishlist games with release dates and sync to Google Calendar / iCal."
     )
     parser.add_argument(
-        "-u", "--username",
+        "-u",
+        "--username",
         default=os.getenv("BACKLOGGD_USERNAME"),
-        help="Backloggd Username (or set BACKLOGGD_USERNAME env var)"
+        help="Backloggd Username (or set BACKLOGGD_USERNAME env var)",
     )
     parser.add_argument(
-        "-o", "--output",
+        "-o",
+        "--output",
         default=os.getenv("OUTPUT_FILE", "backloggd_wishlist.ics"),
-        help="Output .ics file path (default: backloggd_wishlist.ics)"
+        help="Output .ics file path (default: backloggd_wishlist.ics)",
     )
     parser.add_argument(
-        "-d", "--days-back",
+        "-d",
+        "--days-back",
         type=int,
         default=int(os.getenv("DAYS_BACK", "30")),
-        help="Number of days in the past to include (default: 30 days / ~1 month ago)"
+        help="Number of days in the past to include (default: 30 days / ~1 month ago)",
     )
     parser.add_argument(
-        "-g", "--sync-google",
+        "-g",
+        "--sync-google",
         action="store_true",
         default=os.getenv("SYNC_GOOGLE", "").lower() in ("true", "1", "yes"),
-        help="Directly sync events to Google Calendar using Google Calendar API"
+        help="Directly sync events to Google Calendar using Google Calendar API",
     )
     parser.add_argument(
         "--no-headless",
         action="store_true",
-        help="Run browser in non-headless mode (useful for debugging)"
+        help="Run browser in non-headless mode (useful for debugging)",
     )
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose debug logging"
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose debug logging")
     args = parser.parse_args()
     if args.output:
         # Validate output path stays strictly within current working directory to prevent path injection
@@ -96,20 +93,22 @@ def main():
 
     username = args.username
     if not username:
-        logger.error("Error: Backloggd username is required. Pass --username or set BACKLOGGD_USERNAME env var.")
+        logger.error(
+            "Error: Backloggd username is required. Pass --username or set BACKLOGGD_USERNAME env var."
+        )
         sys.exit(1)
         return
 
     output_path = validate_safe_path(args.output, Path.cwd())
 
-    logger.info(f"Starting Backloggd Wishlist sync for user '{username}' (days back: {args.days_back})...")
+    logger.info(
+        f"Starting Backloggd Wishlist sync for user '{username}' (days back: {args.days_back})..."
+    )
 
     # 1. Fetch wishlist games using Playwright
     try:
         games = fetch_backloggd_wishlist(
-            username=username,
-            days_back=args.days_back,
-            headless=not args.no_headless
+            username=username, days_back=args.days_back, headless=not args.no_headless
         )
     except Exception as e:
         logger.exception(f"Failed to fetch wishlist games from Backloggd: {e}")
