@@ -5,7 +5,7 @@ RUN groupadd -r appuser && useradd -r -g appuser -u 1000 appuser
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt
 
 COPY backloggd_client.py generate_ical.py ical_builder.py ./
 
