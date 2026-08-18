@@ -9,7 +9,8 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes --only-binary :all: -r requirements.txt && \
+    pip uninstall -y pip setuptools wheel
 
 COPY backloggd_client.py generate_ical.py ical_builder.py ./
 
