@@ -8,5 +8,5 @@ playwright==1.62.0
 pytest==9.1.1
 pytest-cov==7.1.0
 python-dateutil==2.9.0.post0
-python-dotenv==1.2.2
+python-dotenv==1.2.3
 urllib3==2.7.0
