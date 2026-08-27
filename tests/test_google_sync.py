@@ -49,6 +49,20 @@ def test_build_google_event_payload():
     assert payload["source"]["url"] == "https://backloggd.com/games/metroid/"
 
 
+def test_build_google_event_payload_with_extra():
+    game = {
+        "title": "Elden Ring: Shadow of the Erdtree",
+        "url": "https://backloggd.com/games/shadow-of-the-erdtree/",
+        "release_date_raw": "Jun 21, 2024",
+        "category_type": "extra",
+    }
+    event_date = date(2024, 6, 21)
+    payload = _build_google_event_payload(game, event_date, "uid456")
+
+    assert payload["summary"] == "🎮 Elden Ring: Shadow of the Erdtree"
+    assert "Type: DLC / Extra" in payload["description"]
+
+
 @patch("google_sync.os.path.exists")
 @patch("google_sync.Credentials")
 def test_get_oauth_credentials_valid_token(mock_creds_cls, mock_exists):
@@ -291,6 +305,30 @@ def test_upsert_single_event_insert():
     mock_service.events.return_value.insert.assert_called_once_with(
         calendarId="cal123", body=event_body
     )
+
+
+def test_upsert_single_event_insert_duplicate_409():
+    mock_service = MagicMock()
+    event_body = {"summary": "Test", "iCalUID": "uid123"}
+    err_resp = MagicMock(status=409)
+    mock_service.events.return_value.insert.return_value.execute.side_effect = HttpError(
+        resp=err_resp, content=b"alreadyExists"
+    )
+
+    is_updated = _upsert_single_event(mock_service, "cal123", event_body, None)
+    assert is_updated is True
+
+
+def test_upsert_single_event_insert_error():
+    mock_service = MagicMock()
+    event_body = {"summary": "Test", "iCalUID": "uid123"}
+    err_resp = MagicMock(status=500)
+    mock_service.events.return_value.insert.return_value.execute.side_effect = HttpError(
+        resp=err_resp, content=b"Internal Server Error"
+    )
+
+    with pytest.raises(HttpError):
+        _upsert_single_event(mock_service, "cal123", event_body, None)
 
 
 @patch("google_sync.time.sleep")

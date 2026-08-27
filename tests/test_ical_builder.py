@@ -71,6 +71,25 @@ def test_build_wishlist_calendar():
     assert len(alarms) == 3
 
 
+def test_build_wishlist_calendar_with_extras():
+    games = [
+        {
+            "title": "Elden Ring: Shadow of the Erdtree",
+            "url": "https://backloggd.com/games/shadow-of-the-erdtree/",
+            "release_date": date(2024, 6, 21),
+            "release_date_raw": "Jun 21, 2024",
+            "category_type": "extra",
+        },
+    ]
+
+    cal = build_wishlist_calendar(games)
+    events = [c for c in cal.subcomponents if isinstance(c, Event)]
+    assert len(events) == 1
+    e = events[0]
+    assert "Type: DLC / Extra" in e.get("description")
+    assert "DLC/Expansion" in e.get("categories")
+
+
 def test_export_calendar_to_file():
     cal = Calendar()
     cal.add("prodid", "-//Test//EN")

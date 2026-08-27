@@ -42,11 +42,18 @@ def parse_release_date(date_str: str) -> date | None:
             return date(y, 12, 31)
         return date(y, 1, 1)
 
-    # Quarter format (e.g. "Q3 2026") -> 2026-07-01
-    m_q = re.match(r"^Q([1-4])\s+(\d{4})$", s, re.IGNORECASE)
-    if m_q:
-        q = int(m_q.group(1))
-        y = int(m_q.group(2))
+    # Quarter format (e.g. "Q3 2026" or "2026 Q3") -> 2026-07-01
+    m_q1 = re.match(r"^Q([1-4])\s+(\d{4})$", s, re.IGNORECASE)
+    if m_q1:
+        q = int(m_q1.group(1))
+        y = int(m_q1.group(2))
+        month = (q - 1) * 3 + 1
+        return date(y, month, 1)
+
+    m_q2 = re.match(r"^(\d{4})\s+Q([1-4])$", s, re.IGNORECASE)
+    if m_q2:
+        y = int(m_q2.group(1))
+        q = int(m_q2.group(2))
         month = (q - 1) * 3 + 1
         return date(y, month, 1)
 
@@ -58,7 +65,9 @@ def parse_release_date(date_str: str) -> date | None:
         return None
 
 
-def _extract_game_entry(cover: Any, cutoff_date: date) -> dict[str, Any] | None:
+def _extract_game_entry(
+    cover: Any, cutoff_date: date, category_type: str = "base"
+) -> dict[str, Any] | None:
     """Extract game metadata from a single game cover HTML element."""
     img_tag = cover.find("img")
     title = img_tag["alt"] if img_tag and "alt" in img_tag.attrs else None
@@ -88,6 +97,7 @@ def _extract_game_entry(cover: Any, cutoff_date: date) -> dict[str, Any] | None:
         "release_date": parsed_date,
         "release_date_raw": release_date_raw,
         "cover_url": cover_img_url,
+        "category_type": category_type,
     }
 
 
@@ -122,19 +132,121 @@ def _fetch_page_content(page: Any, url: str) -> str | None:
     return None
 
 
+def _process_page_covers(
+    covers: list[Any],
+    cutoff_date: date,
+    cat_type: str,
+    seen_urls: set[str],
+    seen_titles: set[tuple[str, date | None]],
+) -> list[dict[str, Any]]:
+    """Extracts valid, non-duplicate game entries from a list of cover elements."""
+    new_games = []
+    for c in covers:
+        game = _extract_game_entry(c, cutoff_date, category_type=cat_type)
+        if not game:
+            continue
+
+        url_key = game["url"]
+        title_key = (game["title"].strip().lower(), game["release_date"])
+
+        if (url_key and url_key in seen_urls) or (title_key in seen_titles):
+            logger.debug(f"Skipping duplicate entry '{game['title']}' ({url_key})")
+            continue
+
+        if url_key:
+            seen_urls.add(url_key)
+        seen_titles.add(title_key)
+
+        new_games.append(game)
+        logger.info(
+            f"Added {cat_type}: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})"
+        )
+    return new_games
+
+
+def _scrape_category_pages(
+    page: Any,
+    username: str,
+    list_type: str,
+    cat_type: str,
+    cat_suffix: str,
+    cutoff_date: date,
+    max_pages: int,
+    seen_urls: set[str],
+    seen_titles: set[tuple[str, date | None]],
+) -> list[dict[str, Any]]:
+    """Paginates and scrapes games for a single list type and category bucket."""
+    logger.info(f"Fetching list '{list_type}' (category: {cat_type}) for user '{username}'...")
+    category_games = []
+
+    for page_num in range(1, max_pages + 1):
+        url = f"{BASE_URL}/u/{username}/games/release/type:{list_type}{cat_suffix}?page={page_num}"
+        logger.info(f"Fetching Backloggd page {page_num} [{list_type}/{cat_type}]: {url}")
+
+        html = _fetch_page_content(page, url)
+        if not html:
+            break
+
+        soup = BeautifulSoup(html, "html.parser")
+        title_text = soup.title.get_text(strip=True) if soup.title else ""
+        if "Oh noes!" in title_text or "Access Denied" in html:
+            logger.error("Anubis Anti-Bot challenge blocked access to Backloggd.")
+            break
+
+        covers = soup.select(".game-cover")
+        if not covers:
+            logger.info(
+                f"No more entries found for [{list_type}/{cat_type}] on page {page_num}. Ending pagination."
+            )
+            break
+
+        logger.info(f"Page {page_num} [{list_type}/{cat_type}] contains {len(covers)} entries.")
+
+        page_games = _process_page_covers(
+            covers=covers,
+            cutoff_date=cutoff_date,
+            cat_type=cat_type,
+            seen_urls=seen_urls,
+            seen_titles=seen_titles,
+        )
+        category_games.extend(page_games)
+
+        if len(covers) < 40:
+            break
+
+    return category_games
+
+
 def fetch_backloggd_wishlist(
-    username: str, days_back: int = 30, headless: bool = True, max_pages: int = 50
+    username: str,
+    days_back: int = 30,
+    headless: bool = True,
+    max_pages: int = 50,
+    include_extras: bool = True,
+    list_types: list[str] | str = "wishlist",
 ) -> list[dict[str, Any]]:
     """
-    Fetches games from a user's Backloggd wishlist sorted by release date.
+    Fetches games from a user's Backloggd lists (default wishlist) sorted by release date.
+    Fetches both Base Games and Extras (DLC, Expansions, etc.) to ensure all items are included.
     Filters games to include those released from `days_back` days ago up to all future dates.
     """
     cutoff_date = date.today() - timedelta(days=days_back)
     logger.info(
-        f"Filtering wishlist games with release dates >= {cutoff_date} ({days_back} days ago)"
+        f"Filtering Backloggd items with release dates >= {cutoff_date} ({days_back} days ago)"
     )
 
-    wishlist_games = []
+    if isinstance(list_types, str):
+        types_to_scrape = [t.strip() for t in list_types.split(",") if t.strip()]
+    else:
+        types_to_scrape = list(list_types)
+
+    categories_to_scrape = [("base", "")]
+    if include_extras:
+        categories_to_scrape.append(("extra", ";categories:extras"))
+
+    scraped_games = []
+    seen_urls: set[str] = set()
+    seen_titles: set[tuple[str, date | None]] = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -155,35 +267,21 @@ def fetch_backloggd_wishlist(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
 
-        for page_num in range(1, max_pages + 1):
-            url = f"{BASE_URL}/u/{username}/games/release/type:wishlist/?page={page_num}"
-            logger.info(f"Fetching Backloggd page {page_num}: {url}")
-
-            html = _fetch_page_content(page, url)
-            if not html:
-                break
-
-            soup = BeautifulSoup(html, "html.parser")
-            title_text = soup.title.get_text(strip=True) if soup.title else ""
-            if "Oh noes!" in title_text or "Access Denied" in html:
-                logger.error("Anubis Anti-Bot challenge blocked access to Backloggd.")
-                break
-
-            covers = soup.select(".game-cover")
-            if not covers:
-                logger.info(f"No more games found on page {page_num}. Ending pagination.")
-                break
-
-            logger.info(f"Page {page_num} contains {len(covers)} game entries.")
-
-            for c in covers:
-                game = _extract_game_entry(c, cutoff_date)
-                if game:
-                    wishlist_games.append(game)
-                    logger.info(
-                        f"Added game: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})"
-                    )
+        for list_type in types_to_scrape:
+            for cat_type, cat_suffix in categories_to_scrape:
+                games = _scrape_category_pages(
+                    page=page,
+                    username=username,
+                    list_type=list_type,
+                    cat_type=cat_type,
+                    cat_suffix=cat_suffix,
+                    cutoff_date=cutoff_date,
+                    max_pages=max_pages,
+                    seen_urls=seen_urls,
+                    seen_titles=seen_titles,
+                )
+                scraped_games.extend(games)
 
         browser.close()
 
-    return wishlist_games
+    return scraped_games

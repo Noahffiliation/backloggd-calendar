@@ -20,6 +20,16 @@ on:
         required: false
         default: false
         type: boolean
+      include_extras:
+        description: 'Include Extras (DLC, Expansions, etc.)'
+        required: false
+        default: true
+        type: boolean
+      list_types:
+        description: 'Comma-separated Backloggd list types (e.g. wishlist, backlog)'
+        required: false
+        default: 'wishlist'
+        type: string
 
 concurrency:
   group: sync-backloggd-calendar
@@ -75,6 +85,8 @@ jobs:
           DAYS_BACK: ${{ inputs.days_back || secrets.DAYS_BACK || '30' }}
           SYNC_GOOGLE: ${{ inputs.sync_google || secrets.SYNC_GOOGLE || 'false' }}
           GOOGLE_SHARE_EMAIL: ${{ secrets.GOOGLE_SHARE_EMAIL }}
+          INCLUDE_EXTRAS: ${{ inputs.include_extras || 'true' }}
+          BACKLOGGD_LIST_TYPES: ${{ inputs.list_types || 'wishlist' }}
         run: |
           python generate_ical.py
 

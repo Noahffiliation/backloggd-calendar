@@ -43,6 +43,11 @@ def test_parse_release_date_quarter():
     assert parse_release_date("Q3 2026") == date(2026, 7, 1)
     assert parse_release_date("Q4 2026") == date(2026, 10, 1)
 
+    assert parse_release_date("2026 Q1") == date(2026, 1, 1)
+    assert parse_release_date("2026 Q2") == date(2026, 4, 1)
+    assert parse_release_date("2026 Q3") == date(2026, 7, 1)
+    assert parse_release_date("2026 Q4") == date(2026, 10, 1)
+
 
 def test_parse_release_date_standard_formats():
     assert parse_release_date("Mar 27, 2025") == date(2025, 3, 27)
@@ -183,7 +188,59 @@ def test_fetch_backloggd_wishlist_success(mock_playwright):
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
-    # Page 1 returns 1 game, Page 2 returns no covers
+    # Base page 1 returns 1 valid future game and 1 game before cutoff date
+    base_page1_html = """
+    <html><head><title>Wishlist</title></head><body>
+    <div>
+        <div class="game-cover">
+            <a href="/games/game-1/"><img alt="Game 1" src="cover1.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Dec 31, 2026</p></div>
+    </div>
+    <div>
+        <div class="game-cover">
+            <a href="/games/old-game/"><img alt="Old Game" src="cover_old.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Jan 1, 2010</p></div>
+    </div>
+    </body></html>
+    """
+    extra_page1_html = """
+    <html><head><title>Wishlist</title></head><body>
+    <div>
+        <div class="game-cover">
+            <a href="/games/game-1-dlc/"><img alt="Game 1: Story DLC" src="cover_dlc.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Nov 15, 2026</p></div>
+    </div>
+    </body></html>
+    """
+
+    mock_page.content.side_effect = [
+        base_page1_html,
+        extra_page1_html,
+    ]
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30, max_pages=5, include_extras=True)
+    assert len(games) == 2
+    assert games[0]["title"] == "Game 1"
+    assert games[0]["release_date"] == date(2026, 12, 31)
+    assert games[0]["category_type"] == "base"
+    assert games[1]["title"] == "Game 1: Story DLC"
+    assert games[1]["release_date"] == date(2026, 11, 15)
+    assert games[1]["category_type"] == "extra"
+
+
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_no_extras(mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
     page1_html = """
     <html><head><title>Wishlist</title></head><body>
     <div>
@@ -194,14 +251,85 @@ def test_fetch_backloggd_wishlist_success(mock_playwright):
     </div>
     </body></html>
     """
-    page2_html = "<html><head><title>Wishlist</title></head><body>No games</body></html>"
 
-    mock_page.content.side_effect = [page1_html, page2_html]
+    mock_page.content.side_effect = [page1_html]
 
-    games = fetch_backloggd_wishlist("testuser", days_back=30, max_pages=5)
+    games = fetch_backloggd_wishlist("testuser", days_back=30, max_pages=5, include_extras=False)
     assert len(games) == 1
     assert games[0]["title"] == "Game 1"
-    assert games[0]["release_date"] == date(2026, 12, 31)
+
+
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_deduplication(mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    # Duplicate game returned in both base and extra query
+    duplicate_html = """
+    <html><head><title>Wishlist</title></head><body>
+    <div>
+        <div class="game-cover">
+            <a href="/games/duplicate-game/"><img alt="Duplicate Game" src="cover.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Dec 31, 2026</p></div>
+    </div>
+    </body></html>
+    """
+
+    mock_page.content.side_effect = [duplicate_html, duplicate_html]
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30, include_extras=True)
+    assert len(games) == 1
+    assert games[0]["title"] == "Duplicate Game"
+
+
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_multiple_list_types(mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    wishlist_html = """
+    <html><body>
+        <div class="game-cover">
+            <a href="/games/wishlist-game/"><img alt="Wishlist Game" src="w.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Dec 31, 2026</p></div>
+    </body></html>
+    """
+    backlog_html = """
+    <html><body>
+        <div class="game-cover">
+            <a href="/games/backlog-game/"><img alt="Backlog Game" src="b.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Dec 31, 2026</p></div>
+    </body></html>
+    """
+    empty_html = "<html><body></body></html>"
+
+    mock_page.content.side_effect = [
+        wishlist_html,  # wishlist base (1 cover < 40 -> breaks)
+        empty_html,     # wishlist extra (0 covers -> breaks)
+        backlog_html,   # backlog base (1 cover < 40 -> breaks)
+        empty_html,     # backlog extra (0 covers -> breaks)
+    ]
+
+    games = fetch_backloggd_wishlist(
+        "testuser", days_back=30, list_types=["wishlist", "backlog"], include_extras=True
+    )
+    assert len(games) == 2
+    titles = [g["title"] for g in games]
+    assert "Wishlist Game" in titles
+    assert "Backlog Game" in titles
 
 
 @patch("backloggd_client.sync_playwright")

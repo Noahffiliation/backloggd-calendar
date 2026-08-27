@@ -168,10 +168,13 @@ def _build_google_event_payload(game: dict[str, Any], event_date: date, uid: str
     platform_str = ", ".join(platforms) if platforms else "N/A"
     raw_date_str = game.get("release_date_raw", str(event_date))
 
+    category_type = game.get("category_type")
     desc_lines = [
         f"Game: {title}",
         f"Release Date: {raw_date_str}",
     ]
+    if category_type == "extra":
+        desc_lines.append("Type: DLC / Extra")
     if platforms:
         desc_lines.append(f"Platforms: {platform_str}")
     if url:
@@ -212,8 +215,14 @@ def _upsert_single_event(
         )
         return True
 
-    service.events().insert(calendarId=calendar_id, body=event_body).execute(num_retries=3)
-    return False
+    try:
+        service.events().insert(calendarId=calendar_id, body=event_body).execute(num_retries=3)
+        return False
+    except HttpError as e:
+        if getattr(e.resp, "status", None) == 409 or "alreadyExists" in str(e) or "duplicate" in str(e).lower():
+            logger.debug(f"Event UID {event_body.get('iCalUID')} already exists in calendar.")
+            return True
+        raise
 
 
 def sync_games_to_google_calendar(
