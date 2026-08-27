@@ -219,7 +219,11 @@ def _upsert_single_event(
         service.events().insert(calendarId=calendar_id, body=event_body).execute(num_retries=3)
         return False
     except HttpError as e:
-        if getattr(e.resp, "status", None) == 409 or "alreadyExists" in str(e) or "duplicate" in str(e).lower():
+        if (
+            getattr(e.resp, "status", None) == 409
+            or "alreadyExists" in str(e)
+            or "duplicate" in str(e).lower()
+        ):
             logger.debug(f"Event UID {event_body.get('iCalUID')} already exists in calendar.")
             return True
         raise

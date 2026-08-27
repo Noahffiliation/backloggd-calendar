@@ -318,9 +318,9 @@ def test_fetch_backloggd_wishlist_multiple_list_types(mock_playwright):
 
     mock_page.content.side_effect = [
         wishlist_html,  # wishlist base (1 cover < 40 -> breaks)
-        empty_html,     # wishlist extra (0 covers -> breaks)
-        backlog_html,   # backlog base (1 cover < 40 -> breaks)
-        empty_html,     # backlog extra (0 covers -> breaks)
+        empty_html,  # wishlist extra (0 covers -> breaks)
+        backlog_html,  # backlog base (1 cover < 40 -> breaks)
+        empty_html,  # backlog extra (0 covers -> breaks)
     ]
 
     games = fetch_backloggd_wishlist(

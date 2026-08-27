@@ -25,7 +25,9 @@ def test_parse_args_defaults():
 
 
 def test_parse_args_custom_extras_and_lists():
-    with patch("sys.argv", ["generate_ical.py", "--no-include-extras", "--list-types", "wishlist,backlog"]):
+    with patch(
+        "sys.argv", ["generate_ical.py", "--no-include-extras", "--list-types", "wishlist,backlog"]
+    ):
         args = parse_args()
         assert args.include_extras is False
         assert args.list_types == "wishlist,backlog"
