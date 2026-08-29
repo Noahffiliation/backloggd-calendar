@@ -22,11 +22,26 @@ BASE_URL = "https://backloggd.com"
 
 CHALLENGE_TITLE_SUBSTRINGS = (
     "making sure you're not a bot",
+    "making sure you are not a bot",
+    "not a bot",
+    "botstopper",
+    "anubis",
     "loading http",
     "just a moment",
     "attention required",
     "checking your browser",
+    "security check",
+    "cloudflare",
+    "ddos-guard",
+    "verify you are human",
 )
+
+
+def _normalize_text(text: Any) -> str:
+    """Normalize text for consistent substring matching across quotes and whitespace."""
+    if not isinstance(text, str):
+        return ""
+    return text.replace("\u2019", "'").replace("\u2018", "'").replace("`", "'").strip().lower()
 
 
 def parse_release_date(date_str: str | None) -> date | None:
@@ -113,40 +128,107 @@ def _extract_game_entry(
 def is_challenge_page(page: Any) -> bool:
     """Detect if the page is currently on an Anubis / Cloudflare / BotStopper challenge screen."""
     try:
-        title = page.title().lower()
+        title = _normalize_text(page.title()) if hasattr(page, "title") else ""
         if any(sub in title for sub in CHALLENGE_TITLE_SUBSTRINGS):
             return True
-        if hasattr(page, "locator") and page.locator("#anubis_challenge").count() > 0:
+        if hasattr(page, "locator"):
+            challenge_selectors = (
+                "#anubis_challenge, #anubis_version, script[src*='anubis'], "
+                "a[href*='botstopper'], #challenge-running, #cf-challenge-running, "
+                ".ray_id, #challenge-form, .challenge-form, #progress[role='progressbar']"
+            )
+            ch_count = page.locator(challenge_selectors).count()
+            if isinstance(ch_count, int) and ch_count > 0:
+                return True
+            nav_count = page.locator(
+                ".navbar, nav, .game-cover, #main-container, .profile-header"
+            ).count()
+            if (
+                isinstance(nav_count, int)
+                and nav_count == 0
+                and "backloggd" not in title
+                and "404" not in title
+            ):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _has_game_covers(page: Any) -> bool:
+    """Check if game cover elements exist in the page DOM."""
+    if not hasattr(page, "locator"):
+        return False
+    try:
+        count = page.locator(".game-cover").count()
+        return isinstance(count, int) and count > 0
+    except Exception:
+        return False
+
+
+def _has_page_navigation(page: Any) -> bool:
+    """Check if standard Backloggd navigation or container elements exist."""
+    if not hasattr(page, "locator"):
+        return True
+    selectors = ".navbar, nav, #main-container, .profile-header, #user-games"
+    try:
+        count = page.locator(selectors).count()
+        return isinstance(count, int) and count > 0
+    except Exception:
+        return False
+
+
+def _is_target_page_ready(page: Any) -> bool:
+    """Check if the target Backloggd page or 404 page content is loaded and ready."""
+    try:
+        if _has_game_covers(page):
+            return True
+
+        title = _normalize_text(page.title()) if hasattr(page, "title") else ""
+        if ("backloggd" in title or "404" in title) and _has_page_navigation(page):
+            with contextlib.suppress(Exception):
+                page.wait_for_timeout(500)
             return True
     except Exception:
         pass
     return False
 
 
-def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bool:
-    """Wait for anti-bot / PoW challenge to complete and page to transition."""
-    if not is_challenge_page(page):
-        with contextlib.suppress(Exception):
-            page.wait_for_timeout(1000)
-        return True
+def _log_challenge_resolution(challenge_detected: bool, start_time: float) -> None:
+    """Logs elapsed time if a challenge was previously detected and solved."""
+    if challenge_detected:
+        elapsed = time.monotonic() - start_time
+        logger.info(f"Anti-bot challenge solved in {elapsed:.2f}s!")
 
-    logger.info(
-        f"Anti-bot/Anubis challenge detected on {url}. Waiting up to {timeout}s for PoW solution..."
-    )
+
+def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bool:
+    """Wait for anti-bot / PoW challenge to complete and page content to be ready."""
     start_time = time.monotonic()
+    challenge_detected = False
+
     while time.monotonic() - start_time < timeout:
-        with contextlib.suppress(Exception):
-            page.wait_for_timeout(500)
-        if not is_challenge_page(page):
-            elapsed = time.monotonic() - start_time
-            logger.info(f"Anti-bot challenge solved in {elapsed:.2f}s!")
+        if is_challenge_page(page):
+            if not challenge_detected:
+                logger.info(
+                    f"Anti-bot/Anubis challenge detected on {url}. Waiting up to {timeout}s for PoW solution..."
+                )
+                challenge_detected = True
             with contextlib.suppress(Exception):
-                page.wait_for_load_state("domcontentloaded", timeout=5000)
                 page.wait_for_timeout(500)
+            continue
+
+        if _is_target_page_ready(page):
+            _log_challenge_resolution(challenge_detected, start_time)
             return True
 
-    logger.error(f"Anti-bot challenge timed out after {timeout}s on {url}.")
-    return False
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(500)
+
+    if challenge_detected or is_challenge_page(page):
+        logger.error(f"Anti-bot challenge timed out after {timeout}s on {url}.")
+        return False
+
+    return True
 
 
 def _fetch_page_content(page: Any, url: str, challenge_timeout: int = 30) -> str | None:
@@ -222,6 +304,7 @@ def _scrape_category_pages(
     max_pages: int,
     seen_urls: set[str],
     seen_titles: set[tuple[str, date | None]],
+    challenge_timeout: int = 30,
 ) -> list[dict[str, Any]]:
     """Paginates and scrapes games for a single list type and category bucket."""
     logger.info(f"Fetching list '{list_type}' (category: {cat_type}) for user '{username}'...")
@@ -231,22 +314,23 @@ def _scrape_category_pages(
         url = f"{BASE_URL}/u/{username}/games/release/type:{list_type}{cat_suffix}?page={page_num}"
         logger.info(f"Fetching Backloggd page {page_num} [{list_type}/{cat_type}]: {url}")
 
-        html = _fetch_page_content(page, url)
+        html = _fetch_page_content(page, url, challenge_timeout=challenge_timeout)
         if not html:
             break
 
         soup = BeautifulSoup(html, "html.parser")
-        title_text = soup.title.get_text(strip=True) if soup.title else ""
+        title_text = _normalize_text(soup.title.get_text(strip=True)) if soup.title else ""
         if (
-            "Oh noes!" in title_text
-            or "Access Denied" in html
-            or any(sub in title_text.lower() for sub in CHALLENGE_TITLE_SUBSTRINGS)
+            "oh noes!" in title_text
+            or "access denied" in html.lower()
+            or any(sub in title_text for sub in CHALLENGE_TITLE_SUBSTRINGS)
             or soup.select_one("#anubis_challenge") is not None
+            or soup.select_one("script[src*='anubis']") is not None
         ):
             logger.error(f"Anti-Bot challenge blocked access to Backloggd (title: '{title_text}').")
             break
 
-        if "404" in title_text or "UH-OH!" in html:
+        if "404" in title_text or "uh-oh!" in html.lower():
             logger.warning(
                 f"Backloggd page returned 404 Not Found for user '{username}' ({url}). Please verify that the username is correct."
             )
@@ -283,6 +367,7 @@ def fetch_backloggd_wishlist(
     max_pages: int = 50,
     include_extras: bool = True,
     list_types: list[str] | str = "wishlist",
+    challenge_timeout: int = 30,
 ) -> list[dict[str, Any]]:
     """
     Fetches games from a user's Backloggd lists (default wishlist) sorted by release date.
@@ -338,6 +423,7 @@ def fetch_backloggd_wishlist(
                     max_pages=max_pages,
                     seen_urls=seen_urls,
                     seen_titles=seen_titles,
+                    challenge_timeout=challenge_timeout,
                 )
                 scraped_games.extend(games)
 

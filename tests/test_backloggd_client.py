@@ -2,6 +2,7 @@
 Unit tests for backloggd_client.py
 """
 
+import time
 from datetime import date
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,11 @@ from backloggd_client import (
     CHALLENGE_TITLE_SUBSTRINGS,
     _extract_game_entry,
     _fetch_page_content,
+    _has_game_covers,
+    _has_page_navigation,
+    _is_target_page_ready,
+    _log_challenge_resolution,
+    _normalize_text,
     _wait_for_challenge_resolution,
     fetch_backloggd_wishlist,
     is_challenge_page,
@@ -104,7 +110,8 @@ def test_extract_game_entry_text_fallback_and_before_cutoff():
     assert entry is None
 
 
-def test_fetch_page_content_success():
+@patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
+def test_fetch_page_content_success(mock_wait):
     mock_page = MagicMock()
     mock_page.content.return_value = "<html><body>Test</body></html>"
 
@@ -115,7 +122,8 @@ def test_fetch_page_content_success():
     )
 
 
-def test_fetch_page_content_exception():
+@patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
+def test_fetch_page_content_exception(mock_wait):
     mock_page = MagicMock()
     mock_page.goto.side_effect = Exception("Network Error")
     mock_page.content.side_effect = Exception("No content")
@@ -124,7 +132,8 @@ def test_fetch_page_content_exception():
     assert result is None
 
 
-def test_fetch_page_content_timeout_fallback():
+@patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
+def test_fetch_page_content_timeout_fallback(mock_wait):
     mock_page = MagicMock()
     mock_page.goto.side_effect = Exception("Timeout 30000ms exceeded")
     mock_page.content.return_value = "<html><body>Partial content</body></html>"
@@ -133,7 +142,8 @@ def test_fetch_page_content_timeout_fallback():
     assert result == "<html><body>Partial content</body></html>"
 
 
-def test_fetch_page_content_navigating_retry():
+@patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
+def test_fetch_page_content_navigating_retry(mock_wait):
     mock_page = MagicMock()
     mock_page.content.side_effect = [
         Exception(
@@ -147,7 +157,8 @@ def test_fetch_page_content_navigating_retry():
     mock_page.wait_for_load_state.assert_called_once_with("domcontentloaded", timeout=10000)
 
 
-def test_fetch_page_content_navigating_wait_error():
+@patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
+def test_fetch_page_content_navigating_wait_error(mock_wait):
     mock_page = MagicMock()
     mock_page.wait_for_timeout.side_effect = Exception("Wait error")
     mock_page.wait_for_load_state.side_effect = Exception("Wait load state error")
@@ -177,7 +188,7 @@ def test_fetch_backloggd_wishlist_anti_bot_blocked(mock_playwright):
         "<html><head><title>Oh noes!</title></head><body>Access Denied</body></html>"
     )
 
-    games = fetch_backloggd_wishlist("testuser", days_back=30)
+    games = fetch_backloggd_wishlist("testuser", days_back=30, challenge_timeout=0)
     assert games == []
 
 
@@ -190,6 +201,11 @@ def test_fetch_backloggd_wishlist_success(mock_playwright):
     mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
+
+    mock_page.title.return_value = "User's Games | Backloggd"
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=1 if ".game-cover" in sel or ".navbar" in sel else 0)
+    )
 
     # Base page 1 returns 1 valid future game and 1 game before cutoff date
     base_page1_html = """
@@ -244,6 +260,11 @@ def test_fetch_backloggd_wishlist_no_extras(mock_playwright):
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
+    mock_page.title.return_value = "User's Games | Backloggd"
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=1 if ".game-cover" in sel or ".navbar" in sel else 0)
+    )
+
     page1_html = """
     <html><head><title>Wishlist</title></head><body>
     <div>
@@ -271,6 +292,11 @@ def test_fetch_backloggd_wishlist_deduplication(mock_playwright):
     mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
+
+    mock_page.title.return_value = "User's Games | Backloggd"
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=1 if ".game-cover" in sel or ".navbar" in sel else 0)
+    )
 
     # Duplicate game returned in both base and extra query
     duplicate_html = """
@@ -300,6 +326,11 @@ def test_fetch_backloggd_wishlist_multiple_list_types(mock_playwright):
     mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
+
+    mock_page.title.return_value = "User's Games | Backloggd"
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=1 if ".game-cover" in sel or ".navbar" in sel else 0)
+    )
 
     wishlist_html = """
     <html><body>
@@ -352,11 +383,22 @@ def test_fetch_backloggd_wishlist_empty_html(mock_fetch_content, mock_playwright
     assert games == []
 
 
+def test_normalize_text():
+    assert (
+        _normalize_text("  Making sure you\u2019re not a bot!  ") == "making sure you're not a bot!"
+    )
+    assert _normalize_text("\u2018HELLO`") == "'hello'"
+
+
 def test_is_challenge_page_titles():
     mock_page = MagicMock()
     for sub in CHALLENGE_TITLE_SUBSTRINGS:
         mock_page.title.return_value = f"Prefix {sub} Suffix"
         assert is_challenge_page(mock_page) is True
+
+    # Test unicode curly quote in title
+    mock_page.title.return_value = "Making sure you\u2019re not a bot!"
+    assert is_challenge_page(mock_page) is True
 
     mock_page.title.return_value = "User Profile | Backloggd"
     mock_page.locator.return_value.count.return_value = 0
@@ -369,6 +411,11 @@ def test_is_challenge_page_locator():
     mock_page.locator.return_value.count.return_value = 1
     assert is_challenge_page(mock_page) is True
 
+    # Absent navbar and non-backloggd title
+    mock_page.title.return_value = "Unknown Blank Page"
+    mock_page.locator.return_value.count.return_value = 0
+    assert is_challenge_page(mock_page) is True
+
 
 def test_is_challenge_page_exception():
     mock_page = MagicMock()
@@ -376,31 +423,145 @@ def test_is_challenge_page_exception():
     assert is_challenge_page(mock_page) is False
 
 
-def test_wait_for_challenge_resolution_no_challenge():
+def test_has_game_covers():
     mock_page = MagicMock()
-    mock_page.title.return_value = "Normal Title"
+    mock_page.locator.return_value.count.return_value = 5
+    assert _has_game_covers(mock_page) is True
+
     mock_page.locator.return_value.count.return_value = 0
+    assert _has_game_covers(mock_page) is False
+
+    mock_no_locator = MagicMock(spec=[])
+    assert _has_game_covers(mock_no_locator) is False
+
+    mock_err = MagicMock()
+    mock_err.locator.side_effect = Exception("Locator error")
+    assert _has_game_covers(mock_err) is False
+
+
+def test_has_page_navigation():
+    mock_page = MagicMock()
+    mock_page.locator.return_value.count.return_value = 1
+    assert _has_page_navigation(mock_page) is True
+
+    mock_page.locator.return_value.count.return_value = 0
+    assert _has_page_navigation(mock_page) is False
+
+    mock_no_locator = MagicMock(spec=[])
+    assert _has_page_navigation(mock_no_locator) is True
+
+    mock_err = MagicMock()
+    mock_err.locator.side_effect = Exception("Locator error")
+    assert _has_page_navigation(mock_err) is False
+
+
+def test_is_target_page_ready():
+    # 1. Game covers present
+    mock_page = MagicMock()
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=10 if ".game-cover" in sel else 0)
+    )
+    assert _is_target_page_ready(mock_page) is True
+
+    # 2. Backloggd title + nav present
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=1 if ".navbar" in sel else 0)
+    )
+    mock_page.title.return_value = "Noahffiliation's games | Backloggd"
+    assert _is_target_page_ready(mock_page) is True
+
+    # 3. 404 title + nav present
+    mock_page.title.return_value = "404 Page Not Found"
+    assert _is_target_page_ready(mock_page) is True
+
+    # 4. Unknown title
+    mock_page.title.return_value = "Random Page"
+    assert _is_target_page_ready(mock_page) is False
+
+    # 5. Exception raised
+    mock_page.title.side_effect = Exception("Page error")
+    mock_page.locator.side_effect = Exception("Locator error")
+    assert _is_target_page_ready(mock_page) is False
+
+
+def test_log_challenge_resolution(caplog):
+    # Challenge not detected -> no log
+    _log_challenge_resolution(False, 100.0)
+
+    # Challenge detected -> logs info
+    with caplog.at_level("INFO"):
+        _log_challenge_resolution(True, time.monotonic() - 1.5)
+    assert "Anti-bot challenge solved in" in caplog.text
+
+
+def test_wait_for_challenge_resolution_covers_immediately_ready():
+    mock_page = MagicMock()
+    mock_page.title.return_value = "User's Games | Backloggd"
+    # Challenge selectors -> 0, .game-cover -> 40
+    mock_page.locator.side_effect = lambda sel: MagicMock(
+        count=MagicMock(return_value=40 if ".game-cover" in sel else 0)
+    )
 
     assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is True
-    mock_page.wait_for_timeout.assert_called_once_with(1000)
+
+
+def test_wait_for_challenge_resolution_empty_page_ready():
+    mock_page = MagicMock()
+    mock_page.title.return_value = "User's Games | Backloggd"
+
+    # Challenge selectors -> 0, .game-cover -> 0, .navbar -> 1
+    def locator_side_effect(sel):
+        if ".navbar" in sel:
+            return MagicMock(count=MagicMock(return_value=1))
+        return MagicMock(count=MagicMock(return_value=0))
+
+    mock_page.locator.side_effect = locator_side_effect
+    assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is True
+    mock_page.wait_for_timeout.assert_called_with(500)
+
+
+@patch("backloggd_client.time.monotonic")
+def test_wait_for_challenge_resolution_page_ready_after_delay(mock_monotonic):
+    mock_page = MagicMock()
+    mock_page.title.return_value = "User's Games | Backloggd"
+
+    # First pass: no covers, no navbar. Second pass: 40 covers
+    def locator_side_effect(sel):
+        if ".game-cover" in sel:
+            return MagicMock(
+                count=MagicMock(return_value=40 if mock_monotonic.call_count > 2 else 0)
+            )
+        return MagicMock(count=MagicMock(return_value=0))
+
+    mock_page.locator.side_effect = locator_side_effect
+    mock_monotonic.side_effect = [100.0, 100.5, 101.0, 101.5]
+
+    assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is True
+    mock_page.wait_for_timeout.assert_called_with(500)
 
 
 @patch("backloggd_client.time.monotonic")
 def test_wait_for_challenge_resolution_success(mock_monotonic):
     mock_page = MagicMock()
-    # Sequence of titles: initially challenge, then normal
     mock_page.title.side_effect = [
-        "Making sure you're not a bot!",
-        "Making sure you're not a bot!",
+        "Making sure you\u2019re not a bot!",
+        "Making sure you\u2019re not a bot!",
+        "User's Games | Backloggd",
         "User's Games | Backloggd",
     ]
-    mock_page.locator.return_value.count.return_value = 0
 
-    # Start time = 100.0, step time by 0.5 each check
-    mock_monotonic.side_effect = [100.0, 100.5, 101.0, 101.0]
+    # Initially locator returns 1 for challenge, then 40 for game covers
+    def locator_side_effect(sel):
+        if "#anubis_challenge" in sel:
+            return MagicMock(
+                count=MagicMock(return_value=1 if mock_monotonic.call_count <= 2 else 0)
+            )
+        return MagicMock(count=MagicMock(return_value=40 if mock_monotonic.call_count > 2 else 0))
+
+    mock_page.locator.side_effect = locator_side_effect
+    mock_monotonic.side_effect = [100.0, 100.5, 101.0, 101.5, 102.0, 102.5]
 
     assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=10) is True
-    mock_page.wait_for_load_state.assert_called_once_with("domcontentloaded", timeout=5000)
 
 
 @patch("backloggd_client.time.monotonic")
@@ -410,7 +571,7 @@ def test_wait_for_challenge_resolution_timeout(mock_monotonic):
     mock_page.locator.return_value.count.return_value = 1
 
     # Simulate time passing beyond timeout
-    mock_monotonic.side_effect = [100.0, 100.5, 105.5]
+    mock_monotonic.side_effect = [100.0, 100.5, 105.5, 106.0]
 
     assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is False
 
@@ -438,7 +599,7 @@ def test_fetch_backloggd_wishlist_404_not_found(mock_playwright):
         "<html><head><title>404 Page Not Found</title></head><body><h1>UH-OH!</h1></body></html>"
     )
 
-    games = fetch_backloggd_wishlist("nonexistent_user", days_back=30)
+    games = fetch_backloggd_wishlist("nonexistent_user", days_back=30, challenge_timeout=0)
     assert games == []
 
 
@@ -457,5 +618,5 @@ def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright):
         "<body><div id='anubis_challenge'></div></body></html>"
     )
 
-    games = fetch_backloggd_wishlist("testuser", days_back=30)
+    games = fetch_backloggd_wishlist("testuser", days_back=30, challenge_timeout=0)
     assert games == []
