@@ -6,6 +6,7 @@ Handles Anubis proof-of-work anti-bot protection and pagination.
 import contextlib
 import logging
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
@@ -19,8 +20,16 @@ logger = logging.getLogger(__name__)
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 BASE_URL = "https://backloggd.com"
 
+CHALLENGE_TITLE_SUBSTRINGS = (
+    "making sure you're not a bot",
+    "loading http",
+    "just a moment",
+    "attention required",
+    "checking your browser",
+)
 
-def parse_release_date(date_str: str) -> date | None:
+
+def parse_release_date(date_str: str | None) -> date | None:
     """
     Parses various release date formats from Backloggd into a datetime.date object.
     Supports: 'Mar 27, 2025', '2026', 'Q3 2026', 'Dec 2026', '2026-03-27'.
@@ -101,15 +110,54 @@ def _extract_game_entry(
     }
 
 
-def _fetch_page_content(page: Any, url: str) -> str | None:
+def is_challenge_page(page: Any) -> bool:
+    """Detect if the page is currently on an Anubis / Cloudflare / BotStopper challenge screen."""
+    try:
+        title = page.title().lower()
+        if any(sub in title for sub in CHALLENGE_TITLE_SUBSTRINGS):
+            return True
+        if hasattr(page, "locator") and page.locator("#anubis_challenge").count() > 0:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bool:
+    """Wait for anti-bot / PoW challenge to complete and page to transition."""
+    if not is_challenge_page(page):
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(1000)
+        return True
+
+    logger.info(
+        f"Anti-bot/Anubis challenge detected on {url}. Waiting up to {timeout}s for PoW solution..."
+    )
+    start_time = time.monotonic()
+    while time.monotonic() - start_time < timeout:
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(500)
+        if not is_challenge_page(page):
+            elapsed = time.monotonic() - start_time
+            logger.info(f"Anti-bot challenge solved in {elapsed:.2f}s!")
+            with contextlib.suppress(Exception):
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+                page.wait_for_timeout(500)
+            return True
+
+    logger.error(f"Anti-bot challenge timed out after {timeout}s on {url}.")
+    return False
+
+
+def _fetch_page_content(page: Any, url: str, challenge_timeout: int = 30) -> str | None:
     """Navigates to URL and returns page content HTML, or None on error."""
     try:
         _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         logger.warning(f"Timeout/error fetching page {url}: {e}")
 
-    with contextlib.suppress(Exception):
-        page.wait_for_timeout(2000)
+    if not _wait_for_challenge_resolution(page, url, timeout=challenge_timeout):
+        return None
 
     for attempt in range(3):
         try:
@@ -189,8 +237,19 @@ def _scrape_category_pages(
 
         soup = BeautifulSoup(html, "html.parser")
         title_text = soup.title.get_text(strip=True) if soup.title else ""
-        if "Oh noes!" in title_text or "Access Denied" in html:
-            logger.error("Anubis Anti-Bot challenge blocked access to Backloggd.")
+        if (
+            "Oh noes!" in title_text
+            or "Access Denied" in html
+            or any(sub in title_text.lower() for sub in CHALLENGE_TITLE_SUBSTRINGS)
+            or soup.select_one("#anubis_challenge") is not None
+        ):
+            logger.error(f"Anti-Bot challenge blocked access to Backloggd (title: '{title_text}').")
+            break
+
+        if "404" in title_text or "UH-OH!" in html:
+            logger.warning(
+                f"Backloggd page returned 404 Not Found for user '{username}' ({url}). Please verify that the username is correct."
+            )
             break
 
         covers = soup.select(".game-cover")

@@ -9,9 +9,12 @@ from bs4 import BeautifulSoup
 
 from backloggd_client import (
     BASE_URL,
+    CHALLENGE_TITLE_SUBSTRINGS,
     _extract_game_entry,
     _fetch_page_content,
+    _wait_for_challenge_resolution,
     fetch_backloggd_wishlist,
+    is_challenge_page,
     parse_release_date,
 )
 
@@ -344,6 +347,115 @@ def test_fetch_backloggd_wishlist_empty_html(mock_fetch_content, mock_playwright
     mock_context.new_page.return_value = mock_page
 
     mock_fetch_content.return_value = None
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30)
+    assert games == []
+
+
+def test_is_challenge_page_titles():
+    mock_page = MagicMock()
+    for sub in CHALLENGE_TITLE_SUBSTRINGS:
+        mock_page.title.return_value = f"Prefix {sub} Suffix"
+        assert is_challenge_page(mock_page) is True
+
+    mock_page.title.return_value = "User Profile | Backloggd"
+    mock_page.locator.return_value.count.return_value = 0
+    assert is_challenge_page(mock_page) is False
+
+
+def test_is_challenge_page_locator():
+    mock_page = MagicMock()
+    mock_page.title.return_value = "Backloggd"
+    mock_page.locator.return_value.count.return_value = 1
+    assert is_challenge_page(mock_page) is True
+
+
+def test_is_challenge_page_exception():
+    mock_page = MagicMock()
+    mock_page.title.side_effect = Exception("Browser crashed")
+    assert is_challenge_page(mock_page) is False
+
+
+def test_wait_for_challenge_resolution_no_challenge():
+    mock_page = MagicMock()
+    mock_page.title.return_value = "Normal Title"
+    mock_page.locator.return_value.count.return_value = 0
+
+    assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is True
+    mock_page.wait_for_timeout.assert_called_once_with(1000)
+
+
+@patch("backloggd_client.time.monotonic")
+def test_wait_for_challenge_resolution_success(mock_monotonic):
+    mock_page = MagicMock()
+    # Sequence of titles: initially challenge, then normal
+    mock_page.title.side_effect = [
+        "Making sure you're not a bot!",
+        "Making sure you're not a bot!",
+        "User's Games | Backloggd",
+    ]
+    mock_page.locator.return_value.count.return_value = 0
+
+    # Start time = 100.0, step time by 0.5 each check
+    mock_monotonic.side_effect = [100.0, 100.5, 101.0, 101.0]
+
+    assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=10) is True
+    mock_page.wait_for_load_state.assert_called_once_with("domcontentloaded", timeout=5000)
+
+
+@patch("backloggd_client.time.monotonic")
+def test_wait_for_challenge_resolution_timeout(mock_monotonic):
+    mock_page = MagicMock()
+    mock_page.title.return_value = "Making sure you're not a bot!"
+    mock_page.locator.return_value.count.return_value = 1
+
+    # Simulate time passing beyond timeout
+    mock_monotonic.side_effect = [100.0, 100.5, 105.5]
+
+    assert _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=5) is False
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_challenge_failed(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = False
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result is None
+
+
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_404_not_found(mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    mock_page.content.return_value = (
+        "<html><head><title>404 Page Not Found</title></head><body><h1>UH-OH!</h1></body></html>"
+    )
+
+    games = fetch_backloggd_wishlist("nonexistent_user", days_back=30)
+    assert games == []
+
+
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    mock_page.content.return_value = (
+        "<html><head><title>Making sure you're not a bot!</title></head>"
+        "<body><div id='anubis_challenge'></div></body></html>"
+    )
 
     games = fetch_backloggd_wishlist("testuser", days_back=30)
     assert games == []

@@ -146,6 +146,10 @@ def main():
     logger.info(
         f"Found {len(games)} total items in target release date range ({base_count} Base Games, {extra_count} Extras/DLCs)."
     )
+    if not games:
+        logger.info(
+            "Note: 0 games found. Check if the username is correct, if the list is empty or contains only unreleased/past games outside the days-back range."
+        )
 
     # 2. Build iCal (.ics) Calendar
     calendar = build_wishlist_calendar(games, calendar_name=f"Backloggd Wishlist - {username}")
