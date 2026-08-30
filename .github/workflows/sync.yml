@@ -1,9 +1,9 @@
 name: Sync Backloggd Calendar
 
 on:
-  schedule:
-    # Runs every 8 hours (05:00 UTC = 12:00 AM CDT, 13:00 UTC = 08:00 AM CDT, 21:00 UTC = 04:00 PM CDT)
-    - cron: '0 5,13,21 * * *'
+  # schedule:
+  #   # Runs every 8 hours (05:00 UTC = 12:00 AM CDT, 13:00 UTC = 08:00 AM CDT, 21:00 UTC = 04:00 PM CDT)
+  #   - cron: '0 5,13,21 * * *'
   workflow_dispatch:
     inputs:
       username:
