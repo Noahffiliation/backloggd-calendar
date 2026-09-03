@@ -6,9 +6,9 @@ Features games with release dates from **30 days ago (1 month ago)** through **a
 
 ## Features
 
-- 🎮 **Backloggd Wishlist Scraping**: Automatically fetches games from your wishlist sorted by release date.
+- 🎮 **Comprehensive Backloggd Scraping**: Automatically fetches all items from your wishlist/backlog, including **Base Games** and **Extras** (DLCs, Expansions, Standalone Expansions, Editions, and Updates).
 - 🛡️ **Anubis Anti-Bot Bypass**: Uses Playwright headless Chromium to bypass Backloggd's Anubis proof-of-work challenge seamlessly.
-- 📅 **iCal File Generation**: Builds standard `.ics` calendar files containing release events, descriptions, and game URLs.
+- 📅 **iCal File Generation**: Builds standard `.ics` calendar files containing release events, descriptions, categories, and game URLs.
 - 🔄 **Direct Google Calendar Sync**: Automatically creates/updates events on a dedicated Google Calendar via Service Account or OAuth credentials.
 - 🤖 **GitHub Actions Automation**: Includes a workflow to automatically run the sync on a schedule and upload calendar `.ics` artifacts.
 
@@ -28,11 +28,13 @@ Features games with release dates from **30 days ago (1 month ago)** through **a
    ```bash
    cp .env.example .env
    ```
-   Set your Backloggd username:
+   Set your Backloggd username and preferences:
    ```env
    BACKLOGGD_USERNAME=papaver_
    DAYS_BACK=30
    OUTPUT_FILE=backloggd_wishlist.ics
+   INCLUDE_EXTRAS=true
+   BACKLOGGD_LIST_TYPES=wishlist
    ```
 
 ## How to Add to Google Calendar ("Other Calendars")
@@ -59,10 +61,15 @@ If hosting the `backloggd_wishlist.ics` file on GitHub Pages, GitHub Releases, o
 ## Usage
 
 ### Generate iCal Calendar File
-Run the main script to fetch wishlist games and generate the `.ics` file:
+Run the main script to fetch all wishlist items (base games + DLCs/expansions) and generate the `.ics` file:
 ```bash
 python generate_ical.py --username papaver_
 ```
+
+Additional CLI Options:
+- `--include-extras` / `--no-extras`: Enable or disable fetching Extras/DLCs (default: enabled).
+- `--list-types`: Comma-separated Backloggd lists to sync (default: `wishlist`, e.g., `--list-types wishlist,backlog`).
+- `--days-back`: Number of days in the past to include (default: 30).
 
 ### Sync to Google Calendar
 To sync directly to Google Calendar, provide a `service_account.json` or `credentials.json` file in the project directory, then run:
@@ -75,6 +82,8 @@ Optional Google Sync Environment Variables:
 SYNC_GOOGLE=true
 GOOGLE_SHARE_EMAIL=your_email@gmail.com
 GOOGLE_CALENDAR_ID=your_custom_calendar_id
+INCLUDE_EXTRAS=true
+BACKLOGGD_LIST_TYPES=wishlist
 ```
 
 ## GitHub Actions Automated Sync

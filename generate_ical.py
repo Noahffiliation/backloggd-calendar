@@ -56,6 +56,28 @@ def parse_args():
         default=os.getenv("SYNC_GOOGLE", "").lower() in ("true", "1", "yes"),
         help="Directly sync events to Google Calendar using Google Calendar API",
     )
+    raw_extras = os.getenv("INCLUDE_EXTRAS")
+    include_extras_default = (
+        True
+        if raw_extras is None or not raw_extras.strip()
+        else raw_extras.strip().lower() in ("true", "1", "yes")
+    )
+    raw_list_types = os.getenv("BACKLOGGD_LIST_TYPES")
+    list_types_default = (
+        raw_list_types.strip() if raw_list_types and raw_list_types.strip() else "wishlist"
+    )
+
+    parser.add_argument(
+        "--include-extras",
+        action=argparse.BooleanOptionalAction,
+        default=include_extras_default,
+        help="Include Extras (DLC, Expansions, Editions, etc.) in addition to Base Games (default: True)",
+    )
+    parser.add_argument(
+        "--list-types",
+        default=list_types_default,
+        help="Comma-separated Backloggd list types to sync (e.g. 'wishlist', 'wishlist,backlog'; default: wishlist)",
+    )
     parser.add_argument(
         "--no-headless",
         action="store_true",
@@ -102,20 +124,32 @@ def main():
     output_path = validate_safe_path(args.output, Path.cwd())
 
     logger.info(
-        f"Starting Backloggd Wishlist sync for user '{username}' (days back: {args.days_back})..."
+        f"Starting Backloggd sync for user '{username}' (days back: {args.days_back}, extras: {args.include_extras}, lists: {args.list_types})..."
     )
 
-    # 1. Fetch wishlist games using Playwright
+    # 1. Fetch wishlist/backlog games using Playwright
     try:
         games = fetch_backloggd_wishlist(
-            username=username, days_back=args.days_back, headless=not args.no_headless
+            username=username,
+            days_back=args.days_back,
+            headless=not args.no_headless,
+            include_extras=args.include_extras,
+            list_types=args.list_types,
         )
     except Exception as e:
-        logger.exception(f"Failed to fetch wishlist games from Backloggd: {e}")
+        logger.exception(f"Failed to fetch games from Backloggd: {e}")
         sys.exit(1)
         return
 
-    logger.info(f"Found {len(games)} wishlist games in target release date range.")
+    base_count = sum(1 for g in games if g.get("category_type") == "base")
+    extra_count = sum(1 for g in games if g.get("category_type") == "extra")
+    logger.info(
+        f"Found {len(games)} total items in target release date range ({base_count} Base Games, {extra_count} Extras/DLCs)."
+    )
+    if not games:
+        logger.info(
+            "Note: 0 games found. Check if the username is correct, if the list is empty or contains only unreleased/past games outside the days-back range."
+        )
 
     # 2. Build iCal (.ics) Calendar
     calendar = build_wishlist_calendar(games, calendar_name=f"Backloggd Wishlist - {username}")

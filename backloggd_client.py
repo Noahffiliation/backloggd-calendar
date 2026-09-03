@@ -6,6 +6,7 @@ Handles Anubis proof-of-work anti-bot protection and pagination.
 import contextlib
 import logging
 import re
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
@@ -19,8 +20,31 @@ logger = logging.getLogger(__name__)
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 BASE_URL = "https://backloggd.com"
 
+CHALLENGE_TITLE_SUBSTRINGS = (
+    "making sure you're not a bot",
+    "making sure you are not a bot",
+    "not a bot",
+    "botstopper",
+    "anubis",
+    "loading http",
+    "just a moment",
+    "attention required",
+    "checking your browser",
+    "security check",
+    "cloudflare",
+    "ddos-guard",
+    "verify you are human",
+)
 
-def parse_release_date(date_str: str) -> date | None:
+
+def _normalize_text(text: Any) -> str:
+    """Normalize text for consistent substring matching across quotes and whitespace."""
+    if not isinstance(text, str):
+        return ""
+    return text.replace("\u2019", "'").replace("\u2018", "'").replace("`", "'").strip().lower()
+
+
+def parse_release_date(date_str: str | None) -> date | None:
     """
     Parses various release date formats from Backloggd into a datetime.date object.
     Supports: 'Mar 27, 2025', '2026', 'Q3 2026', 'Dec 2026', '2026-03-27'.
@@ -42,11 +66,18 @@ def parse_release_date(date_str: str) -> date | None:
             return date(y, 12, 31)
         return date(y, 1, 1)
 
-    # Quarter format (e.g. "Q3 2026") -> 2026-07-01
-    m_q = re.match(r"^Q([1-4])\s+(\d{4})$", s, re.IGNORECASE)
-    if m_q:
-        q = int(m_q.group(1))
-        y = int(m_q.group(2))
+    # Quarter format (e.g. "Q3 2026" or "2026 Q3") -> 2026-07-01
+    m_q1 = re.match(r"^Q([1-4])\s+(\d{4})$", s, re.IGNORECASE)
+    if m_q1:
+        q = int(m_q1.group(1))
+        y = int(m_q1.group(2))
+        month = (q - 1) * 3 + 1
+        return date(y, month, 1)
+
+    m_q2 = re.match(r"^(\d{4})\s+Q([1-4])$", s, re.IGNORECASE)
+    if m_q2:
+        y = int(m_q2.group(1))
+        q = int(m_q2.group(2))
         month = (q - 1) * 3 + 1
         return date(y, month, 1)
 
@@ -58,7 +89,9 @@ def parse_release_date(date_str: str) -> date | None:
         return None
 
 
-def _extract_game_entry(cover: Any, cutoff_date: date) -> dict[str, Any] | None:
+def _extract_game_entry(
+    cover: Any, cutoff_date: date, category_type: str = "base"
+) -> dict[str, Any] | None:
     """Extract game metadata from a single game cover HTML element."""
     img_tag = cover.find("img")
     title = img_tag["alt"] if img_tag and "alt" in img_tag.attrs else None
@@ -88,18 +121,125 @@ def _extract_game_entry(cover: Any, cutoff_date: date) -> dict[str, Any] | None:
         "release_date": parsed_date,
         "release_date_raw": release_date_raw,
         "cover_url": cover_img_url,
+        "category_type": category_type,
     }
 
 
-def _fetch_page_content(page: Any, url: str) -> str | None:
+def is_challenge_page(page: Any) -> bool:
+    """Detect if the page is currently on an Anubis / Cloudflare / BotStopper challenge screen."""
+    try:
+        title = _normalize_text(page.title()) if hasattr(page, "title") else ""
+        if any(sub in title for sub in CHALLENGE_TITLE_SUBSTRINGS):
+            return True
+        if hasattr(page, "locator"):
+            challenge_selectors = (
+                "#anubis_challenge, #anubis_version, script[src*='anubis'], "
+                "a[href*='botstopper'], #challenge-running, #cf-challenge-running, "
+                ".ray_id, #challenge-form, .challenge-form, #progress[role='progressbar']"
+            )
+            ch_count = page.locator(challenge_selectors).count()
+            if isinstance(ch_count, int) and ch_count > 0:
+                return True
+            nav_count = page.locator(
+                ".navbar, nav, .game-cover, #main-container, .profile-header"
+            ).count()
+            if (
+                isinstance(nav_count, int)
+                and nav_count == 0
+                and "backloggd" not in title
+                and "404" not in title
+            ):
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _has_game_covers(page: Any) -> bool:
+    """Check if game cover elements exist in the page DOM."""
+    if not hasattr(page, "locator"):
+        return False
+    try:
+        count = page.locator(".game-cover").count()
+        return isinstance(count, int) and count > 0
+    except Exception:
+        return False
+
+
+def _has_page_navigation(page: Any) -> bool:
+    """Check if standard Backloggd navigation or container elements exist."""
+    if not hasattr(page, "locator"):
+        return True
+    selectors = ".navbar, nav, #main-container, .profile-header, #user-games"
+    try:
+        count = page.locator(selectors).count()
+        return isinstance(count, int) and count > 0
+    except Exception:
+        return False
+
+
+def _is_target_page_ready(page: Any) -> bool:
+    """Check if the target Backloggd page or 404 page content is loaded and ready."""
+    try:
+        if _has_game_covers(page):
+            return True
+
+        title = _normalize_text(page.title()) if hasattr(page, "title") else ""
+        if ("backloggd" in title or "404" in title) and _has_page_navigation(page):
+            with contextlib.suppress(Exception):
+                page.wait_for_timeout(500)
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _log_challenge_resolution(challenge_detected: bool, start_time: float) -> None:
+    """Logs elapsed time if a challenge was previously detected and solved."""
+    if challenge_detected:
+        elapsed = time.monotonic() - start_time
+        logger.info(f"Anti-bot challenge solved in {elapsed:.2f}s!")
+
+
+def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bool:
+    """Wait for anti-bot / PoW challenge to complete and page content to be ready."""
+    start_time = time.monotonic()
+    challenge_detected = False
+
+    while time.monotonic() - start_time < timeout:
+        if is_challenge_page(page):
+            if not challenge_detected:
+                logger.info(
+                    f"Anti-bot/Anubis challenge detected on {url}. Waiting up to {timeout}s for PoW solution..."
+                )
+                challenge_detected = True
+            with contextlib.suppress(Exception):
+                page.wait_for_timeout(500)
+            continue
+
+        if _is_target_page_ready(page):
+            _log_challenge_resolution(challenge_detected, start_time)
+            return True
+
+        with contextlib.suppress(Exception):
+            page.wait_for_timeout(500)
+
+    if challenge_detected or is_challenge_page(page):
+        logger.error(f"Anti-bot challenge timed out after {timeout}s on {url}.")
+        return False
+
+    return True
+
+
+def _fetch_page_content(page: Any, url: str, challenge_timeout: int = 30) -> str | None:
     """Navigates to URL and returns page content HTML, or None on error."""
     try:
         _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
     except Exception as e:
         logger.warning(f"Timeout/error fetching page {url}: {e}")
 
-    with contextlib.suppress(Exception):
-        page.wait_for_timeout(2000)
+    if not _wait_for_challenge_resolution(page, url, timeout=challenge_timeout):
+        return None
 
     for attempt in range(3):
         try:
@@ -122,19 +262,135 @@ def _fetch_page_content(page: Any, url: str) -> str | None:
     return None
 
 
+def _process_page_covers(
+    covers: list[Any],
+    cutoff_date: date,
+    cat_type: str,
+    seen_urls: set[str],
+    seen_titles: set[tuple[str, date | None]],
+) -> list[dict[str, Any]]:
+    """Extracts valid, non-duplicate game entries from a list of cover elements."""
+    new_games = []
+    for c in covers:
+        game = _extract_game_entry(c, cutoff_date, category_type=cat_type)
+        if not game:
+            continue
+
+        url_key = game["url"]
+        title_key = (game["title"].strip().lower(), game["release_date"])
+
+        if (url_key and url_key in seen_urls) or (title_key in seen_titles):
+            logger.debug(f"Skipping duplicate entry '{game['title']}' ({url_key})")
+            continue
+
+        if url_key:
+            seen_urls.add(url_key)
+        seen_titles.add(title_key)
+
+        new_games.append(game)
+        logger.info(
+            f"Added {cat_type}: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})"
+        )
+    return new_games
+
+
+def _scrape_category_pages(
+    page: Any,
+    username: str,
+    list_type: str,
+    cat_type: str,
+    cat_suffix: str,
+    cutoff_date: date,
+    max_pages: int,
+    seen_urls: set[str],
+    seen_titles: set[tuple[str, date | None]],
+    challenge_timeout: int = 30,
+) -> list[dict[str, Any]]:
+    """Paginates and scrapes games for a single list type and category bucket."""
+    logger.info(f"Fetching list '{list_type}' (category: {cat_type}) for user '{username}'...")
+    category_games = []
+
+    for page_num in range(1, max_pages + 1):
+        url = f"{BASE_URL}/u/{username}/games/release/type:{list_type}{cat_suffix}?page={page_num}"
+        logger.info(f"Fetching Backloggd page {page_num} [{list_type}/{cat_type}]: {url}")
+
+        html = _fetch_page_content(page, url, challenge_timeout=challenge_timeout)
+        if not html:
+            break
+
+        soup = BeautifulSoup(html, "html.parser")
+        title_text = _normalize_text(soup.title.get_text(strip=True)) if soup.title else ""
+        if (
+            "oh noes!" in title_text
+            or "access denied" in html.lower()
+            or any(sub in title_text for sub in CHALLENGE_TITLE_SUBSTRINGS)
+            or soup.select_one("#anubis_challenge") is not None
+            or soup.select_one("script[src*='anubis']") is not None
+        ):
+            logger.error(f"Anti-Bot challenge blocked access to Backloggd (title: '{title_text}').")
+            break
+
+        if "404" in title_text or "uh-oh!" in html.lower():
+            logger.warning(
+                f"Backloggd page returned 404 Not Found for user '{username}' ({url}). Please verify that the username is correct."
+            )
+            break
+
+        covers = soup.select(".game-cover")
+        if not covers:
+            logger.info(
+                f"No more entries found for [{list_type}/{cat_type}] on page {page_num}. Ending pagination."
+            )
+            break
+
+        logger.info(f"Page {page_num} [{list_type}/{cat_type}] contains {len(covers)} entries.")
+
+        page_games = _process_page_covers(
+            covers=covers,
+            cutoff_date=cutoff_date,
+            cat_type=cat_type,
+            seen_urls=seen_urls,
+            seen_titles=seen_titles,
+        )
+        category_games.extend(page_games)
+
+        if len(covers) < 40:
+            break
+
+    return category_games
+
+
 def fetch_backloggd_wishlist(
-    username: str, days_back: int = 30, headless: bool = True, max_pages: int = 50
+    username: str,
+    days_back: int = 30,
+    headless: bool = True,
+    max_pages: int = 50,
+    include_extras: bool = True,
+    list_types: list[str] | str = "wishlist",
+    challenge_timeout: int = 30,
 ) -> list[dict[str, Any]]:
     """
-    Fetches games from a user's Backloggd wishlist sorted by release date.
+    Fetches games from a user's Backloggd lists (default wishlist) sorted by release date.
+    Fetches both Base Games and Extras (DLC, Expansions, etc.) to ensure all items are included.
     Filters games to include those released from `days_back` days ago up to all future dates.
     """
     cutoff_date = date.today() - timedelta(days=days_back)
     logger.info(
-        f"Filtering wishlist games with release dates >= {cutoff_date} ({days_back} days ago)"
+        f"Filtering Backloggd items with release dates >= {cutoff_date} ({days_back} days ago)"
     )
 
-    wishlist_games = []
+    if isinstance(list_types, str):
+        types_to_scrape = [t.strip() for t in list_types.split(",") if t.strip()]
+    else:
+        types_to_scrape = list(list_types)
+
+    categories_to_scrape = [("base", "")]
+    if include_extras:
+        categories_to_scrape.append(("extra", ";categories:extras"))
+
+    scraped_games = []
+    seen_urls: set[str] = set()
+    seen_titles: set[tuple[str, date | None]] = set()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -155,35 +411,22 @@ def fetch_backloggd_wishlist(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
 
-        for page_num in range(1, max_pages + 1):
-            url = f"{BASE_URL}/u/{username}/games/release/type:wishlist/?page={page_num}"
-            logger.info(f"Fetching Backloggd page {page_num}: {url}")
-
-            html = _fetch_page_content(page, url)
-            if not html:
-                break
-
-            soup = BeautifulSoup(html, "html.parser")
-            title_text = soup.title.get_text(strip=True) if soup.title else ""
-            if "Oh noes!" in title_text or "Access Denied" in html:
-                logger.error("Anubis Anti-Bot challenge blocked access to Backloggd.")
-                break
-
-            covers = soup.select(".game-cover")
-            if not covers:
-                logger.info(f"No more games found on page {page_num}. Ending pagination.")
-                break
-
-            logger.info(f"Page {page_num} contains {len(covers)} game entries.")
-
-            for c in covers:
-                game = _extract_game_entry(c, cutoff_date)
-                if game:
-                    wishlist_games.append(game)
-                    logger.info(
-                        f"Added game: {game['title']} | Release: {game['release_date_raw']} ({game['release_date']})"
-                    )
+        for list_type in types_to_scrape:
+            for cat_type, cat_suffix in categories_to_scrape:
+                games = _scrape_category_pages(
+                    page=page,
+                    username=username,
+                    list_type=list_type,
+                    cat_type=cat_type,
+                    cat_suffix=cat_suffix,
+                    cutoff_date=cutoff_date,
+                    max_pages=max_pages,
+                    seen_urls=seen_urls,
+                    seen_titles=seen_titles,
+                    challenge_timeout=challenge_timeout,
+                )
+                scraped_games.extend(games)
 
         browser.close()
 
-    return wishlist_games
+    return scraped_games

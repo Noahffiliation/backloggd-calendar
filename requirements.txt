@@ -354,28 +354,28 @@ google-api-core==2.33.0 \
     --hash=sha256:3a36bcc3e319783f4c97da41f6f45ea6ffcaa55848e341de16e09cb70243c2bb \
     --hash=sha256:a2e22a0c1d0f03eafff1858b38cf46f832d5902b0c052235bf0ab8402929fbdc
     # via google-api-python-client
-google-api-python-client==2.198.0 \
-    --hash=sha256:dfe3e16fb241af6e9c460a33f65085b3450e05cea09364f6b5d8997fb7e43e2a \
-    --hash=sha256:fabac935474e817da5e662ff61bf7139439d6f92b32d332a7318a2d45931e03e
+google-api-python-client==2.199.0 \
+    --hash=sha256:1d2fa0e7f9d68f063b1a9ff7ed290d6e6c93176260487bf3a991e41534ca23a3 \
+    --hash=sha256:8150816e22e01b36aa4b7523cdc1a2d2164e81c4de8a9b338785d7ecb4390ec2
     # via -r requirements.in
-google-auth==2.56.3 \
-    --hash=sha256:40e229fc901f0a305b553050e5fce562d509bee0435be053abfa91582b51b90c \
-    --hash=sha256:8ec438808f813ad034535000261eed1067475d229d05bbf4216e78c3f2362e53
+google-auth==2.57.0 \
+    --hash=sha256:180dafe015cfb62193bea26b677500fab5b9fd51a1e825ebf3ad9b182047ae59 \
+    --hash=sha256:9b4f96d6a1feb5f7201231f47cfb3de08d8f176f8a61f9e461555116e95a8789
     # via
     #   -r requirements.in
     #   google-api-core
     #   google-api-python-client
     #   google-auth-httplib2
     #   google-auth-oauthlib
-google-auth-httplib2==0.4.1 \
-    --hash=sha256:125b1bb4fcfdd2d97f19b673c1f46f831603d0acaffe415c8a35dadb312552a1 \
-    --hash=sha256:67088a8387dc3f66016a690634f1cb9b7a48a31406f8998e088efc64203e7a12
+google-auth-httplib2==0.4.2 \
+    --hash=sha256:4298dd6b1415972d0c464b7177e6a69a595e7aec5b972222ecdca342f6009647 \
+    --hash=sha256:916225a6367e613c9af44d83f41688a599d3f687777846b8b91bec65085ed1f1
     # via
     #   -r requirements.in
     #   google-api-python-client
-google-auth-oauthlib==1.4.0 \
-    --hash=sha256:18b5e28880eb8eba9065c436becdc0ee8e4b59117a73a510679c82f70cd363d2 \
-    --hash=sha256:251314f213a9ee46a5ae73988e84fd7cca8bb68e7ecf4bfd45940f9e7f51d070
+google-auth-oauthlib==1.4.1 \
+    --hash=sha256:1a83f5f2a8421dedadaa3caf25b3a710dddf85a33a63144be41c2fc79174b106 \
+    --hash=sha256:a1be43ec69fe563ac9b2c4d6fc4334b323b21cbdc59a638b5fa34dd4d5a2a348
     # via -r requirements.in
 googleapis-common-protos==1.75.0 \
     --hash=sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd \
@@ -462,9 +462,9 @@ httplib2==0.32.0 \
     # via
     #   google-api-python-client
     #   google-auth-httplib2
-icalendar==7.2.2 \
-    --hash=sha256:6cf904a928881e20c89b682e75bca2eb97e8c5ca629782ed44a519abf4cac1cc \
-    --hash=sha256:90dd280cb4f67d1ef07b5178c2c33db4fc0a05627e50a3758b6b2aa9b117bc07
+icalendar==7.3.0 \
+    --hash=sha256:7bd001c8e648205e1bde5c6a5b77096598e8d0893dcf57755c6c597635620132 \
+    --hash=sha256:8355acfe17be81b368f0b1e3740817cea9b56ea889931f8f1a87c62f2d28db0b
     # via -r requirements.in
 idna==3.18 \
     --hash=sha256:7f952cbe720b688055e3f87de14f5c3e5fdaa8bc3928985c4077ca689de849a2 \
@@ -555,9 +555,9 @@ python-dateutil==2.9.0.post0 \
     # via
     #   -r requirements.in
     #   icalendar
-python-dotenv==1.2.2 \
-    --hash=sha256:1d8214789a24de455a8b8bd8ae6fe3c6b69a5e3d64aa8a8e5d68e694bbcb285a \
-    --hash=sha256:2c371a91fbd7ba082c2c1dc1f8bf89ca22564a087c2c287cd9b662adde799cf3
+python-dotenv==1.2.3 \
+    --hash=sha256:904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9 \
+    --hash=sha256:a20a594dabeaa385725aa239d5244871c143ecb356add8a20fcf23773a6c3a35
     # via -r requirements.in
 requests==2.34.2 \
     --hash=sha256:2a0d60c172f83ac6ab31e4554906c0f3b3588d37b5cb939b1c061f4907e278e0 \

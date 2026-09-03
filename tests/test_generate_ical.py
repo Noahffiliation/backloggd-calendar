@@ -18,8 +18,19 @@ def test_parse_args_defaults():
         assert args.output == "backloggd_wishlist.ics"
         assert args.days_back == 30
         assert args.sync_google is False
+        assert args.include_extras is True
+        assert args.list_types == "wishlist"
         assert args.no_headless is False
         assert args.verbose is False
+
+
+def test_parse_args_custom_extras_and_lists():
+    with patch(
+        "sys.argv", ["generate_ical.py", "--no-include-extras", "--list-types", "wishlist,backlog"]
+    ):
+        args = parse_args()
+        assert args.include_extras is False
+        assert args.list_types == "wishlist,backlog"
 
 
 def test_validate_safe_path_valid():
@@ -59,6 +70,8 @@ def test_main_fetch_error(mock_fetch, mock_exit):
         args.verbose = True
         args.output = "test.ics"
         args.days_back = 30
+        args.include_extras = True
+        args.list_types = "wishlist"
         args.no_headless = False
         args.sync_google = False
         mock_parse.return_value = args
@@ -84,15 +97,23 @@ def test_main_success_with_google_sync(
         args.verbose = False
         args.output = "test.ics"
         args.days_back = 30
+        args.include_extras = True
+        args.list_types = "wishlist"
         args.no_headless = False
         args.sync_google = True
         mock_parse.return_value = args
 
-        mock_fetch.return_value = [{"title": "Test Game"}]
+        mock_fetch.return_value = [{"title": "Test Game", "category_type": "base"}]
 
         main()
 
-        mock_fetch.assert_called_once_with(username="testuser", days_back=30, headless=True)
+        mock_fetch.assert_called_once_with(
+            username="testuser",
+            days_back=30,
+            headless=True,
+            include_extras=True,
+            list_types="wishlist",
+        )
         mock_build_cal.assert_called_once()
         mock_export.assert_called_once()
         mock_get_service.assert_called_once()
@@ -114,6 +135,8 @@ def test_main_google_sync_error(mock_get_service, mock_exit):
         args.verbose = False
         args.output = "test.ics"
         args.days_back = 30
+        args.include_extras = True
+        args.list_types = "wishlist"
         args.no_headless = False
         args.sync_google = True
         mock_parse.return_value = args
