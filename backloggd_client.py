@@ -36,6 +36,18 @@ CHALLENGE_TITLE_SUBSTRINGS = (
     "verify you are human",
 )
 
+ACCESS_DENIED_TEXT = "access denied"
+
+CHALLENGE_ERROR_SUBSTRINGS = (
+    "oh noes!",
+    ACCESS_DENIED_TEXT,
+    "internal server error",
+    "administrator has misconfigured anubis",
+    "missing_feature",
+    "calculation_error",
+    "challenge_error",
+)
+
 
 def _normalize_text(text: Any) -> str:
     """Normalize text for consistent substring matching across quotes and whitespace."""
@@ -125,16 +137,38 @@ def _extract_game_entry(
     }
 
 
+def is_challenge_error_page(page: Any) -> bool:
+    """Detect if the page is currently displaying an anti-bot error or rejection screen."""
+    try:
+        title = _normalize_text(page.title()) if hasattr(page, "title") else ""
+        if any(sub in title for sub in CHALLENGE_ERROR_SUBSTRINGS):
+            return True
+        curr_url = getattr(page, "url", "")
+        if "pass-challenge" in curr_url:
+            return True
+        if (
+            "backloggd" not in title
+            and hasattr(page, "locator")
+            and page.locator("img[src*='reject.webp']").count() > 0
+        ):
+            return True
+    except Exception:
+        pass
+    return False
+
+
 def is_challenge_page(page: Any) -> bool:
     """Detect if the page is currently on an Anubis / Cloudflare / BotStopper challenge screen."""
     try:
         title = _normalize_text(page.title()) if hasattr(page, "title") else ""
+        if any(sub in title for sub in CHALLENGE_ERROR_SUBSTRINGS):
+            return False
         if any(sub in title for sub in CHALLENGE_TITLE_SUBSTRINGS):
             return True
         if hasattr(page, "locator"):
             challenge_selectors = (
                 "#anubis_challenge, #anubis_version, script[src*='anubis'], "
-                "a[href*='botstopper'], #challenge-running, #cf-challenge-running, "
+                "#challenge-running, #cf-challenge-running, "
                 ".ray_id, #challenge-form, .challenge-form, #progress[role='progressbar']"
             )
             ch_count = page.locator(challenge_selectors).count()
@@ -207,6 +241,10 @@ def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bo
     challenge_detected = False
 
     while time.monotonic() - start_time < timeout:
+        if is_challenge_error_page(page):
+            logger.warning(f"Anti-bot challenge error/rejection detected on {url}.")
+            return False
+
         if is_challenge_page(page):
             if not challenge_detected:
                 logger.info(
@@ -228,36 +266,87 @@ def _wait_for_challenge_resolution(page: Any, url: str, timeout: int = 30) -> bo
         logger.error(f"Anti-bot challenge timed out after {timeout}s on {url}.")
         return False
 
-    return True
+    return _is_target_page_ready(page)
 
 
-def _fetch_page_content(page: Any, url: str, challenge_timeout: int = 30) -> str | None:
-    """Navigates to URL and returns page content HTML, or None on error."""
+def _is_challenge_content(html: str) -> bool:
+    """Check if the rendered HTML content is an anti-bot challenge or error screen."""
+    soup = BeautifulSoup(html, "html.parser")
+    title_text = _normalize_text(soup.title.get_text(strip=True)) if soup.title else ""
+    return (
+        any(sub in title_text for sub in CHALLENGE_ERROR_SUBSTRINGS)
+        or ACCESS_DENIED_TEXT in html.lower()
+        or soup.select_one("#anubis_challenge") is not None
+    )
+
+
+def _handle_navigation_wait(page: Any, url: str) -> None:
+    """Wait for page load state when a navigation transition is detected during content retrieval."""
     try:
-        _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
-    except Exception as e:
-        logger.warning(f"Timeout/error fetching page {url}: {e}")
+        page.wait_for_load_state("domcontentloaded", timeout=10000)
+        page.wait_for_timeout(1000)
+    except Exception as wait_err:
+        logger.warning(f"Error waiting for load state on {url}: {wait_err}")
 
-    if not _wait_for_challenge_resolution(page, url, timeout=challenge_timeout):
-        return None
 
-    for attempt in range(3):
+def _read_page_content(page: Any, url: str, max_read_attempts: int = 3) -> str | None:
+    """Attempts to read and validate HTML content from the page, handling navigating states."""
+    for attempt in range(max_read_attempts):
         try:
-            return page.content()
+            html = page.content()
+            if _is_challenge_content(html):
+                logger.warning(f"Retrieved content is still challenge/error on {url}.")
+                return None
+            return html
         except Exception as e:
-            err_msg = str(e).lower()
-            if "navigating" in err_msg:
+            if "navigat" in str(e).lower():
                 logger.info(
-                    f"Page {url} is navigating (attempt {attempt + 1}/3), waiting for load state..."
+                    f"Page {url} is navigating (attempt {attempt + 1}/{max_read_attempts}), waiting for load state..."
                 )
-                try:
-                    page.wait_for_load_state("domcontentloaded", timeout=10000)
-                    page.wait_for_timeout(1000)
-                except Exception as wait_err:
-                    logger.warning(f"Error waiting for load state on {url}: {wait_err}")
+                _handle_navigation_wait(page, url)
             else:
                 logger.warning(f"Error retrieving content for page {url}: {e}")
-                break
+                return None
+    return None
+
+
+def _retry_delay(page: Any) -> None:
+    """Wait for 1s between retries."""
+    with contextlib.suppress(Exception):
+        page.wait_for_timeout(1000)
+
+
+def _fetch_page_content(
+    page: Any, url: str, challenge_timeout: int = 30, max_retries: int = 3
+) -> str | None:
+    """Navigates to URL and returns page content HTML, or None on error."""
+    for attempt in range(1, max_retries + 1):
+        try:
+            _ = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        except Exception as e:
+            logger.warning(
+                f"Timeout/error fetching page {url} (attempt {attempt}/{max_retries}): {e}"
+            )
+
+        if not _wait_for_challenge_resolution(page, url, timeout=challenge_timeout):
+            if attempt < max_retries:
+                logger.warning(
+                    f"Challenge resolution failed on {url} (attempt {attempt}/{max_retries}). Retrying in 1s..."
+                )
+                _retry_delay(page)
+                continue
+            logger.error(f"Failed to resolve challenge on {url} after {max_retries} attempts.")
+            return None
+
+        html = _read_page_content(page, url)
+        if html is not None:
+            return html
+
+        if attempt < max_retries:
+            logger.warning(
+                f"Page content retrieval failed on {url} (attempt {attempt}/{max_retries}). Retrying..."
+            )
+            _retry_delay(page)
 
     return None
 
@@ -321,8 +410,8 @@ def _scrape_category_pages(
         soup = BeautifulSoup(html, "html.parser")
         title_text = _normalize_text(soup.title.get_text(strip=True)) if soup.title else ""
         if (
-            "oh noes!" in title_text
-            or "access denied" in html.lower()
+            any(sub in title_text for sub in CHALLENGE_ERROR_SUBSTRINGS)
+            or ACCESS_DENIED_TEXT in html.lower()
             or any(sub in title_text for sub in CHALLENGE_TITLE_SUBSTRINGS)
             or soup.select_one("#anubis_challenge") is not None
             or soup.select_one("script[src*='anubis']") is not None

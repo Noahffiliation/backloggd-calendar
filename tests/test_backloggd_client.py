@@ -10,6 +10,7 @@ from bs4 import BeautifulSoup
 
 from backloggd_client import (
     BASE_URL,
+    CHALLENGE_ERROR_SUBSTRINGS,
     CHALLENGE_TITLE_SUBSTRINGS,
     _extract_game_entry,
     _fetch_page_content,
@@ -20,6 +21,7 @@ from backloggd_client import (
     _normalize_text,
     _wait_for_challenge_resolution,
     fetch_backloggd_wishlist,
+    is_challenge_error_page,
     is_challenge_page,
     parse_release_date,
 )
@@ -568,7 +570,13 @@ def test_wait_for_challenge_resolution_success(mock_monotonic):
 def test_wait_for_challenge_resolution_timeout(mock_monotonic):
     mock_page = MagicMock()
     mock_page.title.return_value = "Making sure you're not a bot!"
-    mock_page.locator.return_value.count.return_value = 1
+
+    def locator_side_effect(sel):
+        if "#anubis_challenge" in sel:
+            return MagicMock(count=MagicMock(return_value=1))
+        return MagicMock(count=MagicMock(return_value=0))
+
+    mock_page.locator.side_effect = locator_side_effect
 
     # Simulate time passing beyond timeout
     mock_monotonic.side_effect = [100.0, 100.5, 105.5, 106.0]
@@ -581,12 +589,156 @@ def test_fetch_page_content_challenge_failed(mock_wait):
     mock_page = MagicMock()
     mock_wait.return_value = False
 
-    result = _fetch_page_content(mock_page, "https://example.com")
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=1)
     assert result is None
 
 
+def test_is_challenge_error_page_titles():
+    mock_page = MagicMock()
+    for sub in CHALLENGE_ERROR_SUBSTRINGS:
+        mock_page.title.return_value = f"Prefix {sub} Suffix"
+        assert is_challenge_error_page(mock_page) is True
+
+    mock_page.title.return_value = "Normal Page | Backloggd"
+    mock_page.url = "https://backloggd.com/u/user"
+    mock_page.locator.return_value.count.return_value = 0
+    assert is_challenge_error_page(mock_page) is False
+
+
+def test_is_challenge_error_page_pass_challenge_url():
+    mock_page = MagicMock()
+    mock_page.title.return_value = ""
+    mock_page.url = "https://backloggd.com/.within.website/x/cmd/anubis/api/pass-challenge?id=123"
+    assert is_challenge_error_page(mock_page) is True
+
+
+def test_is_challenge_error_page_reject_image():
+    mock_page = MagicMock()
+    mock_page.title.return_value = "Unknown Page"
+    mock_page.url = "https://backloggd.com/challenge"
+    mock_page.locator.return_value.count.return_value = 1
+    assert is_challenge_error_page(mock_page) is True
+
+    # When title contains 'backloggd', reject.webp locator check is skipped
+    mock_page.title.return_value = "Games | Backloggd"
+    assert is_challenge_error_page(mock_page) is False
+
+
+def test_is_challenge_error_page_exception():
+    mock_page = MagicMock()
+    mock_page.title.side_effect = Exception("Browser error")
+    assert is_challenge_error_page(mock_page) is False
+
+
+def test_is_challenge_page_error_titles():
+    mock_page = MagicMock()
+    for sub in CHALLENGE_ERROR_SUBSTRINGS:
+        mock_page.title.return_value = f"Prefix {sub} Suffix"
+        assert is_challenge_page(mock_page) is False
+
+
+def test_wait_for_challenge_resolution_error_fast_fail(caplog):
+    mock_page = MagicMock()
+    mock_page.title.return_value = "Oh noes!"
+    with caplog.at_level("WARNING"):
+        result = _wait_for_challenge_resolution(mock_page, "https://example.com", timeout=30)
+    assert result is False
+    assert "Anti-bot challenge error/rejection detected" in caplog.text
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_retry_success(mock_wait):
+    mock_page = MagicMock()
+    # Fails first attempt, succeeds on second attempt
+    mock_wait.side_effect = [False, True]
+    mock_page.content.return_value = "<html><head><title>Games</title></head><body>OK</body></html>"
+
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=2)
+    assert result == "<html><head><title>Games</title></head><body>OK</body></html>"
+    assert mock_wait.call_count == 2
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_retry_challenge_error_content(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = True
+    # Attempt 1 returns challenge/error HTML, Attempt 2 returns valid content
+    error_html = "<html><head><title>Oh noes!</title></head><body>Error</body></html>"
+    valid_html = "<html><head><title>Games | Backloggd</title></head><body>OK</body></html>"
+    mock_page.content.side_effect = [error_html, valid_html]
+
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=2)
+    assert result == valid_html
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_goto_exception_retries(mock_wait):
+    mock_page = MagicMock()
+    mock_page.goto.side_effect = [Exception("Network error"), MagicMock()]
+    mock_wait.side_effect = [False, True]
+    mock_page.content.return_value = "<html><head><title>Games</title></head><body>OK</body></html>"
+
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=2)
+    assert result == "<html><head><title>Games</title></head><body>OK</body></html>"
+    assert mock_page.goto.call_count == 2
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_navigating_state(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = True
+
+    # 1st read: 'navigating' error, wait succeeds; 2nd read: returns content
+    mock_page.content.side_effect = [
+        Exception("Execution context was destroyed, most likely because of a navigation."),
+        "<html><head><title>Games</title></head><body>Navigated</body></html>",
+    ]
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result == "<html><head><title>Games</title></head><body>Navigated</body></html>"
+    mock_page.wait_for_load_state.assert_called_once_with("domcontentloaded", timeout=10000)
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_navigating_wait_exception_still_recovers(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = True
+
+    mock_page.content.side_effect = [
+        Exception("Execution context was destroyed, most likely because of a navigation."),
+        "<html><head><title>Games</title></head><body>Navigated</body></html>",
+    ]
+    mock_page.wait_for_load_state.side_effect = Exception("Load state timed out")
+
+    result = _fetch_page_content(mock_page, "https://example.com")
+    assert result == "<html><head><title>Games</title></head><body>Navigated</body></html>"
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_non_navigating_error_breaks(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = True
+
+    mock_page.content.side_effect = Exception("Fatal browser error")
+
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=1)
+    assert result is None
+
+
+@patch("backloggd_client._wait_for_challenge_resolution")
+def test_fetch_page_content_navigating_exhausted(mock_wait):
+    mock_page = MagicMock()
+    mock_wait.return_value = True
+
+    mock_page.content.side_effect = Exception("Page is navigating")
+
+    result = _fetch_page_content(mock_page, "https://example.com", max_retries=1)
+    assert result is None
+
+
+@patch("backloggd_client._fetch_page_content")
 @patch("backloggd_client.sync_playwright")
-def test_fetch_backloggd_wishlist_404_not_found(mock_playwright):
+def test_fetch_backloggd_wishlist_404_not_found(mock_playwright, mock_fetch):
     mock_browser = MagicMock()
     mock_context = MagicMock()
     mock_page = MagicMock()
@@ -595,16 +747,17 @@ def test_fetch_backloggd_wishlist_404_not_found(mock_playwright):
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
-    mock_page.content.return_value = (
+    mock_fetch.return_value = (
         "<html><head><title>404 Page Not Found</title></head><body><h1>UH-OH!</h1></body></html>"
     )
 
-    games = fetch_backloggd_wishlist("nonexistent_user", days_back=30, challenge_timeout=0)
+    games = fetch_backloggd_wishlist("nonexistent_user", days_back=30)
     assert games == []
 
 
+@patch("backloggd_client._fetch_page_content")
 @patch("backloggd_client.sync_playwright")
-def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright):
+def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright, mock_fetch):
     mock_browser = MagicMock()
     mock_context = MagicMock()
     mock_page = MagicMock()
@@ -613,10 +766,10 @@ def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright):
     mock_browser.new_context.return_value = mock_context
     mock_context.new_page.return_value = mock_page
 
-    mock_page.content.return_value = (
+    mock_fetch.return_value = (
         "<html><head><title>Making sure you're not a bot!</title></head>"
         "<body><div id='anubis_challenge'></div></body></html>"
     )
 
-    games = fetch_backloggd_wishlist("testuser", days_back=30, challenge_timeout=0)
+    games = fetch_backloggd_wishlist("testuser", days_back=30)
     assert games == []
