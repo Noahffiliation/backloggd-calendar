@@ -25,3 +25,7 @@ token.json
 .coverage
 coverage.xml
 workflow.sh
+artifacts/
+container-sbom.spdx.json
+trivy-results.sarif
+.scannerwork/
