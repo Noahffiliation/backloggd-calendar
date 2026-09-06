@@ -28,4 +28,5 @@ workflow.sh
 artifacts/
 container-sbom.spdx.json
 trivy-results.sarif
+grype-results.*
 .scannerwork/
