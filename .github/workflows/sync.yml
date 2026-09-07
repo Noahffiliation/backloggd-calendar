@@ -42,6 +42,7 @@ jobs:
   sync:
     name: Sync Calendar & Generate iCal
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -51,18 +52,31 @@ jobs:
         uses: actions/setup-python@v7.0.0
         with:
           python-version: '3.12.3'
-          cache: 'pip'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: "requirements.txt"
 
       - name: Install Python Dependencies
         run: |
-          pip install --require-hashes --only-binary :all: -r requirements.txt
+          uv pip install --system --require-hashes -r requirements.txt
+
+      - name: Get Playwright Version
+        id: playwright-version
+        run: |
+          VERSION=$(grep -E '^playwright==' requirements.txt | cut -d'=' -f3 | tr -d ' \\')
+          echo "version=${VERSION:-latest}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright Browsers
         id: playwright-cache
         uses: actions/cache@v6.1.0
         with:
           path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('requirements.txt') }}
+          key: ${{ runner.os }}-playwright-${{ steps.playwright-version.outputs.version }}
+          restore-keys: |
+            ${{ runner.os }}-playwright-
 
       - name: Install Playwright Browsers & OS Dependencies
         if: steps.playwright-cache.outputs.cache-hit != 'true'
