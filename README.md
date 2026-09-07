@@ -16,11 +16,8 @@ Features games with release dates from **30 days ago (1 month ago)** through **a
 
 1. **Clone & Environment Setup**:
    ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # On Windows
-   # source .venv/bin/activate  # On Linux/macOS
-   pip install -r requirements.txt
-   playwright install chromium
+   uv sync
+   uv run playwright install chromium
    ```
 
 2. **Configure Environment Variables**:

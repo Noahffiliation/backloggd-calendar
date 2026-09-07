@@ -57,16 +57,16 @@ jobs:
         uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
-          cache-dependency-glob: "requirements.txt"
+          cache-dependency-glob: "uv.lock"
 
       - name: Install Python Dependencies
         run: |
-          uv pip install --system --no-build --require-hashes -r requirements.txt
+          uv sync --frozen --no-dev
 
       - name: Get Playwright Version
         id: playwright-version
         run: |
-          VERSION=$(grep -E '^playwright==' requirements.txt | cut -d'=' -f3 | tr -d ' \\')
+          VERSION=$(grep -A 1 '^name = "playwright"' uv.lock | grep 'version =' | cut -d'"' -f2)
           echo "version=${VERSION:-latest}" >> "$GITHUB_OUTPUT"
 
       - name: Cache Playwright Browsers
@@ -80,11 +80,11 @@ jobs:
 
       - name: Install Playwright Browsers & OS Dependencies
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: playwright install chromium --with-deps
+        run: uv run playwright install chromium --with-deps
 
       - name: Install Playwright OS Dependencies Only (Cache Hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: playwright install-deps chromium
+        run: uv run playwright install-deps chromium
 
       - name: Setup Google Service Account (if provided)
         env:
@@ -102,7 +102,7 @@ jobs:
           INCLUDE_EXTRAS: ${{ inputs.include_extras || 'true' }}
           BACKLOGGD_LIST_TYPES: ${{ inputs.list_types || 'wishlist' }}
         run: |
-          python generate_ical.py
+          uv run generate_ical.py
 
       - name: Generate Job Summary
         if: always()
