@@ -1,6 +1,6 @@
 beautifulsoup4==4.15.0
 google-api-python-client==2.200.0
-google-auth==2.57.0
+google-auth==2.57.1
 google-auth-httplib2==0.4.2
 google-auth-oauthlib==1.4.1
 icalendar==7.3.0
