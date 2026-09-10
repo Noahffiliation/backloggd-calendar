@@ -61,7 +61,7 @@ jobs:
 
       - name: Install Python Dependencies
         run: |
-          uv sync --frozen --no-dev
+          uv sync --no-build --locked --no-dev
 
       - name: Get Playwright Version
         id: playwright-version
@@ -80,11 +80,11 @@ jobs:
 
       - name: Install Playwright Browsers & OS Dependencies
         if: steps.playwright-cache.outputs.cache-hit != 'true'
-        run: uv run playwright install chromium --with-deps
+        run: uv run --no-build --locked playwright install chromium --with-deps
 
       - name: Install Playwright OS Dependencies Only (Cache Hit)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
-        run: uv run playwright install-deps chromium
+        run: uv run --no-build --locked playwright install-deps chromium
 
       - name: Setup Google Service Account (if provided)
         env:
@@ -102,7 +102,7 @@ jobs:
           INCLUDE_EXTRAS: ${{ inputs.include_extras || 'true' }}
           BACKLOGGD_LIST_TYPES: ${{ inputs.list_types || 'wishlist' }}
         run: |
-          uv run generate_ical.py
+          uv run --no-build --locked generate_ical.py
 
       - name: Generate Job Summary
         if: always()
