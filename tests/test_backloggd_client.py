@@ -16,9 +16,13 @@ from backloggd_client import (
     _fetch_page_content,
     _has_game_covers,
     _has_page_navigation,
+    _is_duplicate_entry,
+    _is_real_game_cover,
     _is_target_page_ready,
     _log_challenge_resolution,
+    _matches_game_identity,
     _normalize_text,
+    _promote_existing_game_to_extra,
     _wait_for_challenge_resolution,
     fetch_backloggd_wishlist,
     is_challenge_error_page,
@@ -110,6 +114,36 @@ def test_extract_game_entry_text_fallback_and_before_cutoff():
     # Should return None because 2010 is before cutoff date 2020
     entry = _extract_game_entry(cover, cutoff)
     assert entry is None
+
+
+def test_extract_game_entry_p_class_release_below():
+    html = """
+    <div class="col col-cus-user-games px-1 mt-2">
+        <div class="card mx-auto game-cover quick-access" game_id="347841">
+            <a class="cover-link" data-turbo-frame="_top" href="/games/titan-quest-ii/"></a>
+            <div class="overflow-wrapper">
+                <img alt="Titan Quest II" class="card-img height" src="https://images.igdb.com/tq2.jpg" />
+            </div>
+            <div class="game-text-centered">Titan Quest II</div>
+        </div>
+        <div class="row game-card-meta">
+            <div class="col">
+                <p class="release-below">Jan 19, 2027</p>
+            </div>
+        </div>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    cover = soup.select_one(".game-cover")
+    cutoff = date(2026, 1, 1)
+
+    entry = _extract_game_entry(cover, cutoff)
+    assert entry is not None
+    assert entry["title"] == "Titan Quest II"
+    assert entry["url"] == f"{BASE_URL}/games/titan-quest-ii/"
+    assert entry["release_date"] == date(2027, 1, 19)
+    assert entry["release_date_raw"] == "Jan 19, 2027"
+    assert entry["cover_url"] == "https://images.igdb.com/tq2.jpg"
 
 
 @patch("backloggd_client._wait_for_challenge_resolution", return_value=True)
@@ -439,6 +473,100 @@ def test_has_game_covers():
     mock_err = MagicMock()
     mock_err.locator.side_effect = Exception("Locator error")
     assert _has_game_covers(mock_err) is False
+
+
+def test_is_real_game_cover():
+    soup1 = BeautifulSoup(
+        '<div class="card game-cover quick-access" game_id="123"><a href="/games/test/"></a></div>',
+        "html.parser",
+    )
+    cover1 = soup1.select_one(".game-cover")
+    assert _is_real_game_cover(cover1) is True
+
+    # Shimmer placeholder
+    soup2 = BeautifulSoup(
+        '<div class="card mx-auto game-cover empty-card shimmer-bg"></div>',
+        "html.parser",
+    )
+    cover2 = soup2.select_one(".game-cover")
+    assert _is_real_game_cover(cover2) is False
+
+    # String class with shimmer-bg
+    soup3 = BeautifulSoup('<div class="game-cover shimmer-bg"></div>', "html.parser")
+    cover3 = soup3.select_one(".game-cover")
+    assert _is_real_game_cover(cover3) is False
+
+    # No class, no link, no game_id
+    soup4 = BeautifulSoup('<div class="game-cover"></div>', "html.parser")
+    cover4 = soup4.select_one(".game-cover")
+    assert _is_real_game_cover(cover4) is False
+
+
+def test_matches_game_identity():
+    game = {
+        "title": "Metroid Prime 4",
+        "url": "https://backloggd.com/games/mp4/",
+        "release_date": date(2025, 12, 31),
+    }
+
+    # Match by URL
+    assert _matches_game_identity(game, "https://backloggd.com/games/mp4/", ("other", None)) is True
+
+    # Match by title and release date when URL differs or is empty
+    assert _matches_game_identity(game, "", ("metroid prime 4", date(2025, 12, 31))) is True
+    assert (
+        _matches_game_identity(game, "https://other.com", ("metroid prime 4", date(2025, 12, 31)))
+        is True
+    )
+
+    # Mismatch
+    assert _matches_game_identity(game, "", ("different title", date(2025, 12, 31))) is False
+    assert (
+        _matches_game_identity(game, "https://other.com", ("metroid prime 4", date(2026, 1, 1)))
+        is False
+    )
+
+
+def test_promote_existing_game_to_extra():
+    # When existing_games is None or empty
+    _promote_existing_game_to_extra(None, "url", ("title", None))
+    _promote_existing_game_to_extra([], "url", ("title", None))
+
+    games = [
+        {
+            "title": "Base Game",
+            "url": "https://backloggd.com/games/base/",
+            "release_date": None,
+            "category_type": "base",
+        }
+    ]
+    _promote_existing_game_to_extra(games, "https://backloggd.com/games/base/", ("base game", None))
+    assert games[0]["category_type"] == "extra"
+
+
+def test_is_duplicate_entry():
+    seen_urls = {"https://backloggd.com/games/test/"}
+    seen_titles: set[tuple[str, date | None]] = {("test game", date(2026, 1, 1))}
+
+    # Match URL
+    assert (
+        _is_duplicate_entry(
+            "https://backloggd.com/games/test/", ("new game", None), seen_urls, seen_titles
+        )
+        is True
+    )
+    # Match title
+    assert (
+        _is_duplicate_entry(
+            "https://other.com", ("test game", date(2026, 1, 1)), seen_urls, seen_titles
+        )
+        is True
+    )
+    # Not duplicate
+    assert (
+        _is_duplicate_entry("https://other.com", ("different game", None), seen_urls, seen_titles)
+        is False
+    )
 
 
 def test_has_page_navigation():
@@ -773,3 +901,81 @@ def test_fetch_backloggd_wishlist_anubis_challenge_unresolved(mock_playwright, m
 
     games = fetch_backloggd_wishlist("testuser", days_back=30)
     assert games == []
+
+
+@patch("backloggd_client._fetch_page_content")
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_stops_on_shimmer_placeholders(mock_playwright, mock_fetch):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    # Page 1: 40 real games
+    real_game_item = """
+    <div class="col col-cus-user-games">
+        <div class="card game-cover" game_id="{idx}">
+            <a href="/games/game-{idx}/"><img alt="Game {idx}" src="cover.jpg" /></a>
+        </div>
+        <div class="release-below"><p>Dec 31, 2026</p></div>
+    </div>
+    """
+    page1_html = (
+        "<html><body>" + "".join(real_game_item.format(idx=i) for i in range(40)) + "</body></html>"
+    )
+
+    # Page 2: 60 empty shimmer skeleton cards
+    shimmer_item = '<div class="card mx-auto game-cover empty-card shimmer-bg"></div>'
+    page2_html = "<html><body>" + (shimmer_item * 60) + "</body></html>"
+
+    mock_fetch.side_effect = [page1_html, page2_html]
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30, include_extras=False)
+    assert len(games) == 40
+    # Verified it stopped on page 2 when finding 0 real covers, instead of continuing to page 50
+    assert mock_fetch.call_count == 2
+
+
+@patch("backloggd_client._fetch_page_content")
+@patch("backloggd_client.sync_playwright")
+def test_fetch_backloggd_wishlist_extra_promotion(mock_playwright, mock_fetch):
+    mock_browser = MagicMock()
+    mock_context = MagicMock()
+    mock_page = MagicMock()
+
+    mock_playwright.return_value.__enter__.return_value.chromium.launch.return_value = mock_browser
+    mock_browser.new_context.return_value = mock_context
+    mock_context.new_page.return_value = mock_page
+
+    # Base list contains a DLC because Backloggd default query includes all items
+    base_html = """
+    <html><body>
+        <div class="col col-cus-user-games">
+            <div class="card game-cover" game_id="101">
+                <a href="/games/game-dlc/"><img alt="Game DLC" src="cover.jpg" /></a>
+            </div>
+            <div class="release-below"><p>Dec 31, 2026</p></div>
+        </div>
+    </body></html>
+    """
+    # Extras list also contains the same DLC
+    extra_html = """
+    <html><body>
+        <div class="col col-cus-user-games">
+            <div class="card game-cover" game_id="101">
+                <a href="/games/game-dlc/"><img alt="Game DLC" src="cover.jpg" /></a>
+            </div>
+            <div class="release-below"><p>Dec 31, 2026</p></div>
+        </div>
+    </body></html>
+    """
+
+    mock_fetch.side_effect = [base_html, extra_html]
+
+    games = fetch_backloggd_wishlist("testuser", days_back=30, include_extras=True)
+    assert len(games) == 1
+    assert games[0]["title"] == "Game DLC"
+    assert games[0]["category_type"] == "extra"

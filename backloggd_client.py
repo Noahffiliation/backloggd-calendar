@@ -7,6 +7,7 @@ import contextlib
 import logging
 import re
 import time
+from collections.abc import Container
 from datetime import date, datetime, timedelta
 from typing import Any
 from urllib.parse import urljoin
@@ -118,7 +119,11 @@ def _extract_game_entry(
     cover_img_url = img_tag["src"] if img_tag and "src" in img_tag.attrs else ""
 
     parent = cover.parent
-    release_div = parent.select_one(".release-below p") if parent else None
+    release_div = (
+        parent.select_one(".release-below, p.release-below, .release-below p")
+        if parent
+        else cover.select_one(".release-below")
+    )
     release_date_raw = release_div.get_text(strip=True) if release_div else ""
 
     parsed_date = parse_release_date(release_date_raw)
@@ -198,6 +203,16 @@ def _has_game_covers(page: Any) -> bool:
         return isinstance(count, int) and count > 0
     except Exception:
         return False
+
+
+def _is_real_game_cover(cover: Any) -> bool:
+    """Return True if cover is an actual game cover, not an empty shimmer skeleton."""
+    classes = cover.get("class")
+    if classes:
+        class_list = classes if isinstance(classes, list) else str(classes).split()
+        if "shimmer-bg" in class_list:
+            return False
+    return bool(cover.find("a") or cover.get("game_id"))
 
 
 def _has_page_navigation(page: Any) -> bool:
@@ -351,12 +366,50 @@ def _fetch_page_content(
     return None
 
 
+def _matches_game_identity(
+    game: dict[str, Any],
+    url_key: str,
+    title_key: tuple[str, date | None],
+) -> bool:
+    """Check if a game dict matches the given URL or title/date identity."""
+    if url_key and game.get("url") == url_key:
+        return True
+    game_title = game.get("title", "").strip().lower()
+    return (game_title, game.get("release_date")) == title_key
+
+
+def _promote_existing_game_to_extra(
+    existing_games: list[dict[str, Any]] | None,
+    url_key: str,
+    title_key: tuple[str, date | None],
+) -> None:
+    """Promote matching existing game's category to extra if found."""
+    if not existing_games:
+        return
+    for existing_game in existing_games:
+        if _matches_game_identity(existing_game, url_key, title_key):
+            existing_game["category_type"] = "extra"
+
+
+def _is_duplicate_entry(
+    url_key: str,
+    title_key: tuple[str, date | None],
+    seen_urls: Container[str],
+    seen_titles: Container[tuple[str, date | None]],
+) -> bool:
+    """Check if a game entry has already been encountered."""
+    if url_key and url_key in seen_urls:
+        return True
+    return title_key in seen_titles
+
+
 def _process_page_covers(
     covers: list[Any],
     cutoff_date: date,
     cat_type: str,
     seen_urls: set[str],
     seen_titles: set[tuple[str, date | None]],
+    existing_games: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Extracts valid, non-duplicate game entries from a list of cover elements."""
     new_games = []
@@ -368,7 +421,9 @@ def _process_page_covers(
         url_key = game["url"]
         title_key = (game["title"].strip().lower(), game["release_date"])
 
-        if (url_key and url_key in seen_urls) or (title_key in seen_titles):
+        if _is_duplicate_entry(url_key, title_key, seen_urls, seen_titles):
+            if cat_type == "extra":
+                _promote_existing_game_to_extra(existing_games, url_key, title_key)
             logger.debug(f"Skipping duplicate entry '{game['title']}' ({url_key})")
             continue
 
@@ -394,6 +449,7 @@ def _scrape_category_pages(
     seen_urls: set[str],
     seen_titles: set[tuple[str, date | None]],
     challenge_timeout: int = 30,
+    existing_games: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Paginates and scrapes games for a single list type and category bucket."""
     logger.info(f"Fetching list '{list_type}' (category: {cat_type}) for user '{username}'...")
@@ -425,7 +481,7 @@ def _scrape_category_pages(
             )
             break
 
-        covers = soup.select(".game-cover")
+        covers = [c for c in soup.select(".game-cover") if _is_real_game_cover(c)]
         if not covers:
             logger.info(
                 f"No more entries found for [{list_type}/{cat_type}] on page {page_num}. Ending pagination."
@@ -440,6 +496,7 @@ def _scrape_category_pages(
             cat_type=cat_type,
             seen_urls=seen_urls,
             seen_titles=seen_titles,
+            existing_games=existing_games,
         )
         category_games.extend(page_games)
 
@@ -477,7 +534,7 @@ def fetch_backloggd_wishlist(
     if include_extras:
         categories_to_scrape.append(("extra", ";categories:extras"))
 
-    scraped_games = []
+    scraped_games: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
     seen_titles: set[tuple[str, date | None]] = set()
 
@@ -513,6 +570,7 @@ def fetch_backloggd_wishlist(
                     seen_urls=seen_urls,
                     seen_titles=seen_titles,
                     challenge_timeout=challenge_timeout,
+                    existing_games=scraped_games,
                 )
                 scraped_games.extend(games)
 
