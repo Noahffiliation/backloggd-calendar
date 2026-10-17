@@ -116,6 +116,23 @@ def test_extract_game_entry_text_fallback_and_before_cutoff():
     assert entry is None
 
 
+def test_extract_game_entry_no_release_date():
+    html = """
+    <div>
+        <div class="game-cover">
+            <a href="/games/tba-game/"><img alt="TBA Game" src="cover.jpg" /></a>
+        </div>
+        <div class="release-below"><p>TBA</p></div>
+    </div>
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    cover = soup.select_one(".game-cover")
+    cutoff = date(2026, 1, 1)
+
+    entry = _extract_game_entry(cover, cutoff)
+    assert entry is None
+
+
 def test_extract_game_entry_p_class_release_below():
     html = """
     <div class="col col-cus-user-games px-1 mt-2">

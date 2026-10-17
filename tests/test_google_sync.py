@@ -11,6 +11,7 @@ from googleapiclient.errors import HttpError
 
 from google_sync import (
     _build_google_event_payload,
+    _event_needs_update,
     _fetch_existing_events_by_uid,
     _get_event_date,
     _get_oauth_credentials,
@@ -106,7 +107,10 @@ def test_get_google_calendar_service_account(mock_sa_creds, mock_build, mock_exi
 
     _ = get_google_calendar_service()
     mock_build.assert_called_once_with(
-        "calendar", "v3", credentials=mock_sa_creds.from_service_account_file.return_value
+        "calendar",
+        "v3",
+        credentials=mock_sa_creds.from_service_account_file.return_value,
+        cache_discovery=False,
     )
 
 
@@ -362,3 +366,88 @@ def test_sync_games_to_google_calendar_inserts_and_updates(mock_fetch_existing, 
         mock_upsert.side_effect = [True, False]
         sync_games_to_google_calendar(mock_service, "cal123", games)
         assert mock_upsert.call_count == 2
+
+
+def test_event_needs_update_detects_changes():
+    existing = {
+        "summary": "🎮 Game",
+        "description": "Game: Game\r\nRelease Date: 2026",
+        "start": {"date": "2026-12-31"},
+        "end": {"date": "2027-01-01"},
+        "source": {"url": "https://backloggd.com/games/g"},
+    }
+    new_event = {
+        "summary": "🎮 Game",
+        "description": "Game: Game\nRelease Date: 2026",
+        "start": {"date": "2026-12-31"},
+        "end": {"date": "2027-01-01"},
+        "source": {"url": "https://backloggd.com/games/g"},
+    }
+    # Unchanged (CRLF vs LF normalized)
+    assert not _event_needs_update(existing, new_event)
+
+    # Summary change
+    diff_summary = {**new_event, "summary": "🎮 Game Remaster"}
+    assert _event_needs_update(existing, diff_summary)
+
+    # Description change
+    diff_desc = {**new_event, "description": "Game: Game\nRelease Date: 2027"}
+    assert _event_needs_update(existing, diff_desc)
+
+    # Start date change
+    diff_start = {**new_event, "start": {"date": "2026-10-01"}}
+    assert _event_needs_update(existing, diff_start)
+
+    # End date change
+    diff_end = {**new_event, "end": {"date": "2026-10-02"}}
+    assert _event_needs_update(existing, diff_end)
+
+    # Source URL change
+    diff_source = {**new_event, "source": {"url": "https://backloggd.com/games/diff"}}
+    assert _event_needs_update(existing, diff_source)
+
+    # Missing fields in existing
+    assert _event_needs_update({}, new_event)
+
+
+def test_upsert_single_event_unchanged():
+    mock_service = MagicMock()
+    event_body = {
+        "summary": "🎮 Test",
+        "description": "Game: Test\nRelease Date: 2026",
+        "start": {"date": "2026-12-31"},
+        "end": {"date": "2027-01-01"},
+        "source": {"url": "https://backloggd.com/games/test"},
+        "iCalUID": "uid123",
+    }
+    existing_event = {
+        "id": "existing_id",
+        "summary": "🎮 Test",
+        "description": "Game: Test\nRelease Date: 2026",
+        "start": {"date": "2026-12-31"},
+        "end": {"date": "2027-01-01"},
+        "source": {"url": "https://backloggd.com/games/test"},
+    }
+
+    res = _upsert_single_event(mock_service, "cal123", event_body, existing_event)
+    assert res is None
+    mock_service.events.return_value.patch.assert_not_called()
+
+
+@patch("google_sync.time.sleep")
+@patch("google_sync._fetch_existing_events_by_uid")
+def test_sync_games_to_google_calendar_handles_unchanged(mock_fetch_existing, mock_sleep):
+    mock_service = MagicMock()
+    mock_fetch_existing.return_value = {}
+
+    games = [
+        {
+            "title": "Game 1",
+            "url": "https://backloggd.com/games/g1/",
+            "release_date": date(2026, 12, 1),
+        },
+    ]
+
+    with patch("google_sync._upsert_single_event", return_value=None):
+        sync_games_to_google_calendar(mock_service, "cal123", games)
+        mock_sleep.assert_not_called()

@@ -75,10 +75,10 @@ def get_google_calendar_service(
         creds = service_account.Credentials.from_service_account_file(
             service_account_path, scopes=SCOPES
         )
-        return build("calendar", "v3", credentials=creds)
+        return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
     creds = _get_oauth_credentials(credentials_path, token_path)
-    return build("calendar", "v3", credentials=creds)
+    return build("calendar", "v3", credentials=creds, cache_discovery=False)
 
 
 def share_calendar_with_email(service, calendar_id: str, share_email: str | None = None):
@@ -201,14 +201,48 @@ def _build_google_event_payload(game: dict[str, Any], event_date: date, uid: str
     return event_body
 
 
+def _event_needs_update(existing_event: dict[str, Any], event_body: dict[str, Any]) -> bool:
+    """Check if the existing Google Calendar event differs in key fields from the new payload."""
+    if existing_event.get("summary") != event_body.get("summary"):
+        return True
+    if (existing_event.get("description") or "").replace("\r\n", "\n").strip() != (
+        event_body.get("description") or ""
+    ).replace("\r\n", "\n").strip():
+        return True
+
+    existing_start = existing_event.get("start") or {}
+    new_start = event_body.get("start") or {}
+    if existing_start.get("date") != new_start.get("date"):
+        return True
+
+    existing_end = existing_event.get("end") or {}
+    new_end = event_body.get("end") or {}
+    if existing_end.get("date") != new_end.get("date"):
+        return True
+
+    existing_source = existing_event.get("source") or {}
+    new_source = event_body.get("source") or {}
+    return existing_source.get("url") != new_source.get("url")
+
+
 def _upsert_single_event(
     service: Any,
     calendar_id: str,
     event_body: dict[str, Any],
     existing_event: dict[str, Any] | None,
-) -> bool:
-    """Inserts or patches a Google Calendar event. Returns True if updated, False if created."""
+) -> bool | None:
+    """
+    Inserts or patches a Google Calendar event.
+    Returns:
+        True: Event was updated (patched)
+        False: Event was created (inserted)
+        None: Event was already up to date (no API call made)
+    """
     if existing_event:
+        if not _event_needs_update(existing_event, event_body):
+            logger.debug(f"Event UID {event_body.get('iCalUID')} is unchanged, skipping update.")
+            return None
+
         event_id = existing_event["id"]
         service.events().patch(calendarId=calendar_id, eventId=event_id, body=event_body).execute(
             num_retries=3
@@ -235,12 +269,16 @@ def sync_games_to_google_calendar(
     """
     Sync games to the Google Calendar, creating or updating events.
     """
-    logger.info(f"Syncing {len(games)} game release events to Google Calendar '{calendar_id}'...")
+    valid_games = [g for g in games if _get_event_date(g.get("release_date")) is not None]
+    logger.info(
+        f"Syncing {len(valid_games)} game release events to Google Calendar '{calendar_id}'..."
+    )
 
     existing_events_by_uid = _fetch_existing_events_by_uid(service, calendar_id)
 
     count_created = 0
     count_updated = 0
+    count_unchanged = 0
 
     for game in games:
         event_date = _get_event_date(game.get("release_date"))
@@ -251,12 +289,16 @@ def sync_games_to_google_calendar(
         event_body = _build_google_event_payload(game, event_date, uid)
         existing_event = existing_events_by_uid.get(uid)
 
-        is_updated = _upsert_single_event(service, calendar_id, event_body, existing_event)
-        if is_updated:
+        result = _upsert_single_event(service, calendar_id, event_body, existing_event)
+        if result is True:
             count_updated += 1
-        else:
+            time.sleep(0.1)
+        elif result is False:
             count_created += 1
+            time.sleep(0.1)
+        else:
+            count_unchanged += 1
 
-        time.sleep(0.1)
-
-    logger.info(f"Google Calendar Sync finished: {count_created} created, {count_updated} updated.")
+    logger.info(
+        f"Google Calendar Sync finished: {count_created} created, {count_updated} updated, {count_unchanged} unchanged."
+    )

@@ -128,7 +128,11 @@ def _extract_game_entry(
 
     parsed_date = parse_release_date(release_date_raw)
 
-    if parsed_date is not None and parsed_date < cutoff_date:
+    if parsed_date is None:
+        logger.debug(f"Skipping '{title}' (no confirmed release date)")
+        return None
+
+    if parsed_date < cutoff_date:
         logger.debug(f"Skipping '{title}' (released {parsed_date} before cutoff {cutoff_date})")
         return None
 
