@@ -17,8 +17,9 @@ Features games with release dates from **30 days ago (1 month ago)** through **a
 1. **Clone & Environment Setup**:
    ```bash
    uv sync
-   uv run playwright install chromium
+   uv run playwright install --with-deps chromium
    ```
+   *(If Chromium is already downloaded on Linux/WSL and fails to launch with missing shared library errors such as `libnspr4.so`, run `uv run playwright install-deps chromium`.)*
 
 2. **Configure Environment Variables**:
    Copy `.env.example` to `.env`:

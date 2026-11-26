@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 
 from backloggd_client import fetch_backloggd_wishlist
 from google_sync import (
+    CALENDAR_NAME,
+    disable_calendar_other_notifications,
+    get_gmail_service,
     get_google_calendar_service,
     get_or_create_calendar,
     sync_games_to_google_calendar,
@@ -161,8 +164,20 @@ def main():
         logger.info("Starting direct Google Calendar sync...")
         try:
             service = get_google_calendar_service()
+            share_email = os.getenv("GOOGLE_SHARE_EMAIL") or os.getenv(
+                "GOOGLE_CALENDAR_SHARE_EMAIL"
+            )
+            gmail_service = get_gmail_service() if share_email else None
             cal_id = get_or_create_calendar(service)
-            sync_games_to_google_calendar(service, cal_id, games)
+            disable_calendar_other_notifications([cal_id])
+            sync_games_to_google_calendar(
+                service,
+                cal_id,
+                games,
+                gmail_service=gmail_service,
+                notify_email=share_email,
+                calendar_name=CALENDAR_NAME,
+            )
             logger.info("Google Calendar sync completed successfully.")
         except Exception as e:
             logger.exception(f"Google Calendar sync failed: {e}")

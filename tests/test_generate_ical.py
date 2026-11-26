@@ -82,6 +82,8 @@ def test_main_fetch_error(mock_fetch, mock_exit):
         mock_exit.assert_called_once_with(1)
 
 
+@patch("generate_ical.disable_calendar_other_notifications")
+@patch("generate_ical.get_gmail_service")
 @patch("generate_ical.get_google_calendar_service")
 @patch("generate_ical.get_or_create_calendar")
 @patch("generate_ical.sync_games_to_google_calendar")
@@ -89,9 +91,19 @@ def test_main_fetch_error(mock_fetch, mock_exit):
 @patch("generate_ical.build_wishlist_calendar")
 @patch("generate_ical.fetch_backloggd_wishlist")
 def test_main_success_with_google_sync(
-    mock_fetch, mock_build_cal, mock_export, mock_sync_gcal, mock_get_or_create, mock_get_service
+    mock_fetch,
+    mock_build_cal,
+    mock_export,
+    mock_sync_gcal,
+    mock_get_or_create,
+    mock_get_service,
+    mock_get_gmail,
+    mock_disable_notifs,
 ):
-    with patch("generate_ical.parse_args") as mock_parse:
+    with (
+        patch.dict(os.environ, {"GOOGLE_SHARE_EMAIL": "user@example.com"}, clear=True),
+        patch("generate_ical.parse_args") as mock_parse,
+    ):
         args = MagicMock()
         args.username = "testuser"
         args.verbose = False
@@ -104,6 +116,7 @@ def test_main_success_with_google_sync(
         mock_parse.return_value = args
 
         mock_fetch.return_value = [{"title": "Test Game", "category_type": "base"}]
+        mock_get_or_create.return_value = "cal_123"
 
         main()
 
@@ -117,8 +130,67 @@ def test_main_success_with_google_sync(
         mock_build_cal.assert_called_once()
         mock_export.assert_called_once()
         mock_get_service.assert_called_once()
+        mock_get_gmail.assert_called_once()
         mock_get_or_create.assert_called_once()
-        mock_sync_gcal.assert_called_once()
+        mock_disable_notifs.assert_called_once_with(["cal_123"])
+        mock_sync_gcal.assert_called_once_with(
+            mock_get_service.return_value,
+            "cal_123",
+            mock_fetch.return_value,
+            gmail_service=mock_get_gmail.return_value,
+            notify_email="user@example.com",
+            calendar_name="Backloggd Wishlist Releases",
+        )
+
+
+@patch("generate_ical.disable_calendar_other_notifications")
+@patch("generate_ical.get_gmail_service")
+@patch("generate_ical.get_google_calendar_service")
+@patch("generate_ical.get_or_create_calendar")
+@patch("generate_ical.sync_games_to_google_calendar")
+@patch("generate_ical.export_calendar_to_file")
+@patch("generate_ical.build_wishlist_calendar")
+@patch("generate_ical.fetch_backloggd_wishlist")
+def test_main_success_with_google_sync_without_share_email(
+    mock_fetch,
+    mock_build_cal,
+    mock_export,
+    mock_sync_gcal,
+    mock_get_or_create,
+    mock_get_service,
+    mock_get_gmail,
+    mock_disable_notifs,
+):
+    with (
+        patch.dict(os.environ, {}, clear=True),
+        patch("generate_ical.parse_args") as mock_parse,
+    ):
+        args = MagicMock()
+        args.username = "testuser"
+        args.verbose = False
+        args.output = "test.ics"
+        args.days_back = 30
+        args.include_extras = True
+        args.list_types = "wishlist"
+        args.no_headless = False
+        args.sync_google = True
+        mock_parse.return_value = args
+
+        mock_fetch.return_value = []
+        mock_get_or_create.return_value = "cal_123"
+
+        main()
+
+        mock_get_gmail.assert_not_called()
+        mock_disable_notifs.assert_called_once_with(["cal_123"])
+        mock_sync_gcal.assert_called_once_with(
+            mock_get_service.return_value,
+            "cal_123",
+            [],
+            gmail_service=None,
+            notify_email=None,
+            calendar_name="Backloggd Wishlist Releases",
+        )
 
 
 @patch("generate_ical.sys.exit")
